@@ -1,0 +1,43 @@
+[
+  {
+    "id": "TXN-1765573724396-ttylha76h",
+    "date": "2025-12-12T21:08:44.396Z",
+    "items": [
+      {
+        "reg_number": "101139",
+        "product_name": "Children's Panadol Liquid",
+        "quantity": 2,
+        "price": 110.26,
+        "total": 220.52
+      },
+      {
+        "reg_number": "083993",
+        "product_name": "Panadol Junior Suspension",
+        "quantity": 1,
+        "price": 108.46,
+        "total": 108.46
+      },
+      {
+        "reg_number": "118336",
+        "product_name": "Panadol Extend Tablets",
+        "quantity": 1,
+        "price": 153.01,
+        "total": 153.01
+      }
+    ],
+    "customer": {
+      "name": "Walk-in Customer",
+      "phone": ""
+    },
+    "payment": {
+      "method": "cash",
+      "subtotal": 481.99,
+      "discount": 48.199,
+      "discountPercent": 10,
+      "tax": 24.0995,
+      "taxPercent": 5,
+      "total": 457.8905
+    },
+    "status": "completed"
+  }
+]

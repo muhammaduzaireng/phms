@@ -1,0 +1,222 @@
+[
+  {
+    "product_name": "Snake Venom AntiSerum",
+    "generic_name": "Snake Venom AntiSerum",
+    "reg_number": "053882",
+    "manufacturer": "Hakimsons (Impex) (Pvt.) Ltd.",
+    "dsl_dml": "DSL: 030",
+    "category": "Essential Drugs",
+    "pack_size": "(1's pack)",
+    "price_rs": 3104.59,
+    "effective_from": "06 Aug, 2025"
+  },
+  {
+    "product_name": "Equirab 1000 IU/5 ml",
+    "generic_name": "Anti-Rabies Serum (Equine)",
+    "reg_number": "052223",
+    "manufacturer": "Hakimsons (Impex) (Pvt.) Ltd.",
+    "dsl_dml": "DSL: 030",
+    "category": "Essential Drugs",
+    "pack_size": "(1's pack)",
+    "price_rs": 2037.24,
+    "effective_from": "06 Aug, 2025"
+  },
+  {
+    "product_name": "Prevenar 13V Suspension for Injection",
+    "generic_name": "Pneumococcal Conjugate Vaccine 0.5ml",
+    "reg_number": "098499",
+    "manufacturer": "Wyeth Pakistan Limited",
+    "dsl_dml": "DSL: 036",
+    "category": "Essential Drugs",
+    "pack_size": "(1X50)Vial",
+    "price_rs": 1290266.38,
+    "effective_from": "13 Aug, 2025"
+  },
+  {
+    "product_name": "Oxaprin Injection 20mg",
+    "generic_name": "Enoxaparin Sodium 20mg/0.2ml",
+    "reg_number": "056859",
+    "manufacturer": "Werrick Pharmaceuticals",
+    "dsl_dml": "DML: 000340",
+    "category": "Essential Drugs",
+    "pack_size": "0.2mlx1's",
+    "price_rs": 260.25,
+    "effective_from": "18 Aug, 2025"
+  },
+  {
+    "product_name": "Oxaprin Injection 40mg",
+    "generic_name": "Enoxaparin Sodium 40mg/0.4ml",
+    "reg_number": "056860",
+    "manufacturer": "Werrick Pharmaceuticals",
+    "dsl_dml": "DML: 000340",
+    "category": "Essential Drugs",
+    "pack_size": "0.4mlx1's",
+    "price_rs": 815.56,
+    "effective_from": "18 Aug, 2025"
+  },
+  {
+    "product_name": "Rabies vaccine (vero cell) Human Use",
+    "generic_name": "Rabies vaccine (vero cell) Human Use",
+    "reg_number": "091880",
+    "manufacturer": "Biological Production Divison, National Institute of Health",
+    "dsl_dml": "DML: 000092",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml x 1's",
+    "price_rs": 1337,
+    "effective_from": "01 Jul, 2024"
+  },
+  {
+    "product_name": "VAXAPOX(Live Attenuated Varicella Vaccine, Lyophilized)",
+    "generic_name": "(Live Attenuated Varicella Vaccine, Lyophilized)Each dose of 0.5ml contains:OKA Strain …........... 3.3 Lg PFU of live Varicella Virus (min 2000 PFU).",
+    "reg_number": "074628",
+    "manufacturer": "SIND MEDICAL STORES",
+    "dsl_dml": "DSL: 450",
+    "category": "Essential Drugs",
+    "pack_size": "0.5 ml vial",
+    "price_rs": 4401.15,
+    "effective_from": "07 Aug, 2025"
+  },
+  {
+    "product_name": "INDIRAB(Purified Vero Cell Rabies Vaccine - PVRV)",
+    "generic_name": "Each dose of lyophilized vaccine contains:Purified & propiolactone inactivated Rabies Virus …..... 2.5 I.U.(Prepared on Vero Cells, PM Strain of rabies virus) of one immunizing dose.",
+    "reg_number": "053814",
+    "manufacturer": "HOSPITAL SERVICES & SALES",
+    "dsl_dml": "DSL: 0398",
+    "category": "Essential Drugs",
+    "pack_size": "0.5 ml vial",
+    "price_rs": 1397.31,
+    "effective_from": "07 Aug, 2025"
+  },
+  {
+    "product_name": "REVAC B+ 0.5ml(Recombinant Hepatitis B Vaccine)",
+    "generic_name": "(Recombinant Hepatitis B Vaccine)Each 0.5 ml contains:Hepatitis B Surface antigen 10µg",
+    "reg_number": "053861",
+    "manufacturer": "SIND MEDICAL STORES",
+    "dsl_dml": "DSL: 450",
+    "category": "Essential Drugs",
+    "pack_size": "0.5 ml Vial",
+    "price_rs": 314.9,
+    "effective_from": "07 Aug, 2025"
+  },
+  {
+    "product_name": "POLIOMYELITIS VACCINE(Poliomyelitis Vaccine, Inactivated, suspension for injection)",
+    "generic_name": "Poliomyelitis Vaccine, Inactivated, suspension for injection1 dose of 0.5ml inactivated Poliomyelitis vaccinecontains the following active ingredients:Poliomyelitis virus type 1 (Mahoney) 40-Dantigen unitsPoliomyelitis virus type 2 (MEF 1) 8-D antigen virusPoliomyelitis virus type 3 (Saukett) 32-D antigen units",
+    "reg_number": "077520",
+    "manufacturer": "HOSPITAL SERVICES & SALES",
+    "dsl_dml": "DSL: 0398",
+    "category": "Essential Drugs",
+    "pack_size": "0.5 ml Vial / 1 Dose",
+    "price_rs": 834.45,
+    "effective_from": "07 Aug, 2025"
+  },
+  {
+    "product_name": "HexaximSuspension for Injection",
+    "generic_name": "Deptheria + Tetanus + Polio + Pertussius + Influenza + Hepatitis B",
+    "reg_number": "079275",
+    "manufacturer": "Hoechst Pakistan Limited",
+    "dsl_dml": "DSL: 650",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml PFS (1's)",
+    "price_rs": 6953.31,
+    "effective_from": "04 Aug, 2025"
+  },
+  {
+    "product_name": "Imovax PolioSuspension For Injection",
+    "generic_name": "Poliomyelitis Vaccine One dose of 0.5ml contains:Poliovirus type 1, Mahoney strain (inactivated)  40 DUPoliovirus type 2, MEF-I strain (inactivated)  8 DUPoliovirus type 3, Saukett strain (inactivated) 32 DU",
+    "reg_number": "045700",
+    "manufacturer": "Hoechst Pakistan Limited",
+    "dsl_dml": "DML: 000007",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml PFS (1's)",
+    "price_rs": 809.09,
+    "effective_from": "01 Jul, 2024"
+  },
+  {
+    "product_name": "Measles Vaccine Live attenuated (Freeze Dried) Lyophilized injection.",
+    "generic_name": "Measles Virus Note Less than 1000 CCID50",
+    "reg_number": "052298",
+    "manufacturer": "Amson Vaccines & Pharma (Pvt.) Ltd",
+    "dsl_dml": "DSL: 017/DSL(D)/PS&DC-ICT/2025",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml vial (Single dose).",
+    "price_rs": 105.58,
+    "effective_from": "05 Aug, 2025"
+  },
+  {
+    "product_name": "EASYFIVE -TT (Pentavalent Vaccine)",
+    "generic_name": "Each 1 Dose of 0.5ml contains:Diphtheria Toxoid 20 Lf (30 IU)Tetanus Toxoid 7.5 Lf (40IU) in guinea pig and 60 IU in mice)Pertussis Vaccine 12 OU (4 IU) r-Hepatitis B surface antigen (HbsAg) 10mcgHaemophilus type b conjugate vaccine 10mcg",
+    "reg_number": "053813",
+    "manufacturer": "HOSPITAL SERVICES & SALES",
+    "dsl_dml": "DSL: 0398",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml Vial / 1 Dose",
+    "price_rs": 4286.41,
+    "effective_from": "07 Aug, 2025"
+  },
+  {
+    "product_name": "Bett (Adsorbed Tetanus Vaccine B.P.)",
+    "generic_name": "Tetanus Toxoid . . . . . . .> 40IU",
+    "reg_number": "083350",
+    "manufacturer": "Amson Vaccines & Pharma (Pvt.) Ltd",
+    "dsl_dml": "DSL: 017/DSL(D)/PS&DC-ICT/2025",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml vial / One dose vial",
+    "price_rs": 75.44,
+    "effective_from": "05 Aug, 2025"
+  },
+  {
+    "product_name": "MenactraSolution For Injection",
+    "generic_name": "Meningitis Vaccine Each dose of 0.5ml contains: Meningococcal (Serogroup A) Polysaccharide (Monovalent Conjugate) 4mcgMeningococcal (Serogroup C) Polysaccharide (Monovalent Conjugate) 4mcgMeningococcal (Serogroup Y) Polysaccharide (Monovalent Conjugate) 4mcgMeningococcal (Serogroup W-135) Polysaccharide (Monovalent Conjugate) 4mcg",
+    "reg_number": "072535",
+    "manufacturer": "Hoechst Pakistan Limited",
+    "dsl_dml": "DSL: 650",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml x 1's",
+    "price_rs": 6101.16,
+    "effective_from": "04 Aug, 2025"
+  },
+  {
+    "product_name": "Amvax B Injection",
+    "generic_name": "Each ml contains:Purified HBs Antigen…20mcg/10mcg",
+    "reg_number": "018727",
+    "manufacturer": "Amson Vaccines & Pharma (Pvt.) Ltd.",
+    "dsl_dml": "DML: 000393",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml x 1's",
+    "price_rs": 335.82,
+    "effective_from": "07 Aug, 2025"
+  },
+  {
+    "product_name": "INFLUVAC SUSPENSION FOR INJECTION",
+    "generic_name": "Each 0.5ml prefilled syringe contains: Haemagglutinin 15mcg (per recommended virus strain).",
+    "reg_number": "028437",
+    "manufacturer": "Abbott Laboratories (Pakistan) Limited",
+    "dsl_dml": "DSL: 056/2023",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml X 10's",
+    "price_rs": 8806.33,
+    "effective_from": "07 Aug, 2025"
+  },
+  {
+    "product_name": "Amvax B Injection",
+    "generic_name": "Each ml contains:Purified HBs Antigen…20mcg/10mcg",
+    "reg_number": "018727",
+    "manufacturer": "Amson Vaccines & Pharma (Pvt.) Ltd.",
+    "dsl_dml": "DML: 000393",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml x 10's",
+    "price_rs": 3358.33,
+    "effective_from": "07 Aug, 2025"
+  },
+  {
+    "product_name": "MenactraSolution For Injection",
+    "generic_name": "Meningitis Vaccine Each dose of 0.5ml contains: Meningococcal (Serogroup A) Polysaccharide (Monovalent Conjugate) 4mcgMeningococcal (Serogroup C) Polysaccharide (Monovalent Conjugate) 4mcgMeningococcal (Serogroup Y) Polysaccharide (Monovalent Conjugate) 4mcgMeningococcal (Serogroup W-135) Polysaccharide (Monovalent Conjugate) 4mcg",
+    "reg_number": "072536",
+    "manufacturer": "Hoechst Pakistan Limited",
+    "dsl_dml": "DSL: 650",
+    "category": "Essential Drugs",
+    "pack_size": "0.5ml x 5's",
+    "price_rs": 25349.37,
+    "effective_from": "04 Aug, 2025"
+  }
+]
