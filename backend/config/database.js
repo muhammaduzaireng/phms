@@ -2,28 +2,30 @@ const mysql = require('mysql2/promise');
 
 // Centralized Database Configuration (Medicines)
 const centralizedDbConfig = {
-  host: 'srv1650.hstgr.io',
-  // host: '193.203.168.148', // Alternative IP
+  host: '193.203.168.148', // Using IP address (DNS might not resolve locally)
+  port: 3306, // Explicit port
   user: 'u672236642_pharmacy',
   password: 'Pharmacy@5512',
   database: 'u672236642_pharmacy',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  charset: 'utf8mb4'
+  charset: 'utf8mb4',
+  connectTimeout: 30000 // 30 second timeout
 };
 
 // Users Database Configuration (User-specific data)
 const usersDbConfig = {
-  host: 'srv1650.hstgr.io',
-  // host: '193.203.168.148', // Alternative IP
+  host: '193.203.168.148', // Using IP address (DNS might not resolve locally)
+  port: 3306, // Explicit port
   user: 'u672236642_pharmacyUsers',
   password: 'pharmacyUsers@5512',
   database: 'u672236642_pharmacyUsers',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  charset: 'utf8mb4'
+  charset: 'utf8mb4',
+  connectTimeout: 30000 // 30 second timeout
 };
 
 // Create connection pools

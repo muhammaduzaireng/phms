@@ -1,0 +1,256 @@
+.electron-pos-container {
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  background: #f5f5f5;
+  display: flex;
+  flex-direction: column;
+}
+
+.electron-pos-header {
+  background: white;
+  border-bottom: 2px solid #e0e0e0;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  flex-shrink: 0;
+  min-height: 70px;
+}
+
+.pharmacy-info h2 {
+  margin: 0;
+  color: #333;
+  font-size: 1.3rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+.pos-menu-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.pos-menu-bar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.pos-menu-bar::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 2px;
+}
+
+.pos-menu-bar button {
+  padding: 8px 16px;
+  border: 2px solid #667eea;
+  background: white;
+  color: #667eea;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pos-menu-bar button:hover {
+  background: #667eea;
+  color: white;
+  transform: translateY(-2px);
+}
+
+.pos-menu-bar button.active {
+  background: #667eea;
+  color: white;
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.pos-menu-bar .logout-btn {
+  background: #ff6b6b;
+  border-color: #ff6b6b;
+  color: white;
+}
+
+.pos-menu-bar .logout-btn:hover {
+  background: #ff5252;
+  border-color: #ff5252;
+}
+
+.electron-pos-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* Important for flex children to shrink */
+  padding: 15px;
+}
+
+.pos-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.keyboard-shortcuts-hint {
+  background: #fff3cd;
+  border-left: 4px solid #ffc107;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #856404;
+  flex-shrink: 0;
+}
+
+.view-container {
+  background: white;
+  border-radius: 12px;
+  padding: 15px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  max-width: 100%;
+  margin: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.back-btn {
+  padding: 8px 16px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 15px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.back-btn:hover {
+  background: #5a6268;
+}
+
+.view-container h2 {
+  margin: 0 0 20px 0;
+  color: #333;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+/* Sales Reports Styles */
+.sales-reports {
+  max-width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.period-selector {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.period-selector button {
+  padding: 12px 24px;
+  border: 2px solid #667eea;
+  background: white;
+  color: #667eea;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.period-selector button:hover {
+  background: #f0f0f0;
+}
+
+.period-selector button.active {
+  background: #667eea;
+  color: white;
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.sales-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin-top: 20px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.stat-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+  border-radius: 12px;
+  color: white;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.stat-card h3 {
+  margin: 0 0 15px 0;
+  font-size: 1rem;
+  opacity: 0.9;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.stat-card .amount {
+  font-size: 2rem;
+  font-weight: bold;
+  margin: 0;
+}
+
+.stat-card .count {
+  font-size: 2rem;
+  font-weight: bold;
+  margin: 0;
+}
+
+.loading, .no-data {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+  font-size: 1.2rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .electron-pos-header {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .pos-menu-bar {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .pos-menu-bar button {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .sales-stats {
+    grid-template-columns: 1fr;
+  }
+}
+

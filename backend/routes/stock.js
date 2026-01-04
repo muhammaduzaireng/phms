@@ -1,45 +1,84 @@
 const express = require('express');
 const router = express.Router();
-const { usersPool } = require('../config/database');
+const { verifyToken } = require('./auth');
+const { usersPool, centralizedPool } = require('../config/database');
 
-// Get stock for a user
-router.get('/', async (req, res) => {
+// Get stock for a user (requires authentication)
+router.get('/', verifyToken, async (req, res) => {
   try {
-    const { userId = 1, medicineRegNumber, customProductId } = req.query;
+    const userId = req.user.id;
+    const { medicineRegNumber, customProductId } = req.query;
 
-    let query = `
-      SELECT s.*, 
-        m.product_name as medicine_name,
-        cp.name as custom_product_name
-      FROM stock s
-      LEFT JOIN medicines m ON s.medicine_reg_number = m.reg_number
-      LEFT JOIN custom_products cp ON s.custom_product_id = cp.id
-      WHERE s.user_id = ?
-    `;
-    const params = [userId];
+    // Get stock from users database
+    let stockQuery = 'SELECT * FROM stock WHERE user_id = ?';
+    const stockParams = [userId];
 
     if (medicineRegNumber) {
-      query += ' AND s.medicine_reg_number = ?';
-      params.push(medicineRegNumber);
+      stockQuery += ' AND medicine_reg_number = ?';
+      stockParams.push(medicineRegNumber);
     }
 
     if (customProductId) {
-      query += ' AND s.custom_product_id = ?';
-      params.push(customProductId);
+      stockQuery += ' AND custom_product_id = ?';
+      stockParams.push(customProductId);
     }
 
-    const [stock] = await usersPool.query(query, params);
-    res.json(stock);
+    const [stock] = await usersPool.query(stockQuery, stockParams);
+
+    // Enrich stock data with medicine and custom product names
+    const enrichedStock = await Promise.all(stock.map(async (item) => {
+      let medicineName = null;
+      let customProductName = null;
+
+      // Get medicine name from centralized database
+      if (item.medicine_reg_number) {
+        try {
+          const [medicines] = await centralizedPool.query(
+            'SELECT product_name FROM medicines WHERE reg_number = ?',
+            [item.medicine_reg_number]
+          );
+          if (medicines.length > 0) {
+            medicineName = medicines[0].product_name;
+          }
+        } catch (err) {
+          // Medicine not found in centralized DB, continue
+        }
+      }
+
+      // Get custom product name from users database
+      if (item.custom_product_id) {
+        try {
+          const [customProducts] = await usersPool.query(
+            'SELECT name FROM custom_products WHERE id = ? AND user_id = ?',
+            [item.custom_product_id, userId]
+          );
+          if (customProducts.length > 0) {
+            customProductName = customProducts[0].name;
+          }
+        } catch (err) {
+          // Custom product not found, continue
+        }
+      }
+
+      return {
+        ...item,
+        medicine_name: medicineName,
+        custom_product_name: customProductName
+      };
+    }));
+
+    res.json(enrichedStock);
   } catch (error) {
     console.error('Error fetching stock:', error);
     res.status(500).json({ error: 'Error fetching stock', message: error.message });
   }
 });
 
-// Update stock
-router.post('/update', async (req, res) => {
+// Update stock (requires authentication)
+router.post('/update', verifyToken, async (req, res) => {
   try {
-    const { userId = 1, medicineRegNumber, customProductId, quantity, minStockLevel, maxStockLevel, unitPrice, expiryDate, batchNumber, location } = req.body;
+    const userId = req.user.id;
+    const { medicineRegNumber, customProductId, quantity, minStockLevel, maxStockLevel, unitPrice, expiryDate, batchNumber, location } = req.body;
 
     // Check if stock record exists
     const [existing] = await usersPool.query(
@@ -78,22 +117,56 @@ router.post('/update', async (req, res) => {
   }
 });
 
-// Get low stock items
-router.get('/low-stock', async (req, res) => {
+// Get low stock items (requires authentication)
+router.get('/low-stock', verifyToken, async (req, res) => {
   try {
-    const { userId = 1 } = req.query;
+    const userId = req.user.id;
 
+    // Get low stock items
     const [stock] = await usersPool.query(
-      `SELECT s.*, 
-        COALESCE(m.product_name, cp.name) as product_name
-      FROM stock s
-      LEFT JOIN medicines m ON s.medicine_reg_number = m.reg_number
-      LEFT JOIN custom_products cp ON s.custom_product_id = cp.id
-      WHERE s.user_id = ? AND s.quantity <= s.min_stock_level`,
+      `SELECT * FROM stock WHERE user_id = ? AND quantity <= min_stock_level`,
       [userId]
     );
 
-    res.json(stock);
+    // Enrich with product names
+    const enrichedStock = await Promise.all(stock.map(async (item) => {
+      let productName = null;
+
+      if (item.medicine_reg_number) {
+        try {
+          const [medicines] = await centralizedPool.query(
+            'SELECT product_name FROM medicines WHERE reg_number = ?',
+            [item.medicine_reg_number]
+          );
+          if (medicines.length > 0) {
+            productName = medicines[0].product_name;
+          }
+        } catch (err) {
+          // Medicine not found
+        }
+      }
+
+      if (item.custom_product_id && !productName) {
+        try {
+          const [customProducts] = await usersPool.query(
+            'SELECT name FROM custom_products WHERE id = ? AND user_id = ?',
+            [item.custom_product_id, userId]
+          );
+          if (customProducts.length > 0) {
+            productName = customProducts[0].name;
+          }
+        } catch (err) {
+          // Custom product not found
+        }
+      }
+
+      return {
+        ...item,
+        product_name: productName
+      };
+    }));
+
+    res.json(enrichedStock);
   } catch (error) {
     console.error('Error fetching low stock:', error);
     res.status(500).json({ error: 'Error fetching low stock', message: error.message });

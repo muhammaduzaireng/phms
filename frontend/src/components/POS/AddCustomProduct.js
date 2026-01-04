@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import './AddCustomProduct.css';
 import API_BASE_URL from '../../config/api';
 
-const AddCustomProduct = ({ onClose, onSuccess }) => {
+const AddCustomProduct = ({ onClose, onSuccess, token }) => {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -33,7 +33,8 @@ const AddCustomProduct = ({ onClose, onSuccess }) => {
       const response = await fetch(`${API_BASE_URL}/api/custom-products`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify(formData)
       });

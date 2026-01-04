@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const { verifyToken } = require('./auth');
 const { usersPool } = require('../config/database');
 
-// Create sale/checkout (accessible as /api/pos/checkout)
-router.post('/checkout', async (req, res) => {
+// Create sale/checkout (requires authentication)
+router.post('/checkout', verifyToken, async (req, res) => {
   try {
-    const { userId = 1, items, customerName, customerPhone, paymentMethod, discount = 0, tax = 0 } = req.body;
+    const userId = req.user.id;
+    const { items, customerName, customerPhone, paymentMethod, discount = 0, tax = 0 } = req.body;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ error: 'Cart is empty' });
@@ -16,7 +18,12 @@ router.post('/checkout', async (req, res) => {
     const taxAmount = (subtotal * tax) / 100;
     const total = subtotal - discountAmount + taxAmount;
 
-    const transactionId = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Generate unique transaction ID: TXN-YYYYMMDD-HHMMSS-XXXXX
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0,10).replace(/-/g, '');
+    const timeStr = now.toTimeString().slice(0,8).replace(/:/g, '');
+    const randomStr = Math.random().toString(36).substr(2, 5).toUpperCase();
+    const transactionId = `TXN-${dateStr}-${timeStr}-${randomStr}`;
 
     const [saleResult] = await usersPool.query(
       `INSERT INTO sales 
@@ -90,10 +97,11 @@ router.post('/checkout', async (req, res) => {
   }
 });
 
-// Get sales/transactions (accessible as /api/pos/transactions)
-router.get('/transactions', async (req, res) => {
+// Get sales/transactions (requires authentication)
+router.get('/transactions', verifyToken, async (req, res) => {
   try {
-    const { userId = 1, startDate, endDate, page = 1, limit = 50 } = req.query;
+    const userId = req.user.id;
+    const { startDate, endDate, page = 1, limit = 50 } = req.query;
 
     let query = 'SELECT * FROM sales WHERE user_id = ?';
     const params = [userId];
@@ -111,24 +119,66 @@ router.get('/transactions', async (req, res) => {
 
     const [sales] = await usersPool.query(query, params);
 
+    // Transform sales data to match frontend expectations
+    const transactions = sales.map(sale => {
+      // Will add items below
+      return {
+        id: sale.transaction_id || sale.id,
+        sale_id: sale.id,
+        date: sale.created_at || sale.sale_date,
+        created_at: sale.created_at,
+        customer: {
+          name: sale.customer_name || 'Walk-in Customer',
+          phone: sale.customer_phone || null
+        },
+        customer_name: sale.customer_name,
+        customer_phone: sale.customer_phone,
+        payment: {
+          method: sale.payment_method || 'cash',
+          subtotal: parseFloat(sale.subtotal || 0),
+          discount: parseFloat(sale.discount_amount || 0),
+          tax: parseFloat(sale.tax_amount || 0),
+          total: parseFloat(sale.total || 0)
+        },
+        payment_method: sale.payment_method,
+        subtotal: parseFloat(sale.subtotal || 0),
+        discount_amount: parseFloat(sale.discount_amount || 0),
+        tax_amount: parseFloat(sale.tax_amount || 0),
+        total_amount: parseFloat(sale.total || 0),
+        total: parseFloat(sale.total || 0),
+        items: [] // Will be populated below
+      };
+    });
+
     // Get items for each sale
-    for (const sale of sales) {
+    for (const transaction of transactions) {
       const [items] = await usersPool.query(
         'SELECT * FROM sales_items WHERE sale_id = ?',
-        [sale.id]
+        [transaction.sale_id]
       );
-      sale.items = items;
+      transaction.items = items.map(item => ({
+        ...item,
+        product_name: item.item_name || item.product_name,
+        name: item.item_name || item.product_name,
+        quantity: item.quantity || item.qty,
+        qty: item.quantity || item.qty,
+        price: parseFloat(item.price || item.unit_price || 0),
+        unit_price: parseFloat(item.price || item.unit_price || 0),
+        total: parseFloat(item.total || item.subtotal || 0),
+        subtotal: parseFloat(item.total || item.subtotal || 0)
+      }));
+      transaction.items_count = items.length;
     }
 
     const startIndex = (parseInt(page) - 1) * parseInt(limit);
-    const paginatedSales = sales.slice(startIndex, startIndex + parseInt(limit));
+    const paginatedSales = transactions.slice(startIndex, startIndex + parseInt(limit));
 
     res.json({
       transactions: paginatedSales,
-      total: sales.length,
+      total: transactions.length,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(sales.length / parseInt(limit))
+      totalPages: Math.ceil(transactions.length / parseInt(limit))
     });
   } catch (error) {
     console.error('Error fetching sales:', error);
@@ -136,12 +186,14 @@ router.get('/transactions', async (req, res) => {
   }
 });
 
-// Get sales statistics (accessible as /api/pos/sales-stats)
-router.get('/sales-stats', async (req, res) => {
+// Get sales statistics (requires authentication)
+router.get('/sales-stats', verifyToken, async (req, res) => {
   try {
-    const { userId = 1, startDate, endDate } = req.query;
+    const userId = req.user.id;
+    const { startDate, endDate } = req.query;
 
-    let query = 'SELECT * FROM sales WHERE user_id = ? AND status = "completed"';
+    // Don't filter by status - include all sales (status column might not exist or might be null)
+    let query = 'SELECT * FROM sales WHERE user_id = ?';
     const params = [userId];
 
     if (startDate) {

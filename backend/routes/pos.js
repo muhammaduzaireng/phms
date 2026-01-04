@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const { verifyToken } = require('./auth');
 const { centralizedPool, usersPool } = require('../config/database');
 
-// Get all products (medicines + custom products) for POS
-router.get('/products', async (req, res) => {
+// Get all products (medicines + custom products) for POS (requires authentication)
+router.get('/products', verifyToken, async (req, res) => {
   try {
-    const { search, category, userId = 1 } = req.query;
+    const userId = req.user.id;
+    const { search, category } = req.query;
 
     // Get medicines from centralized DB
     let medicineQuery = 'SELECT *, "medicine" as product_type FROM medicines WHERE 1=1';

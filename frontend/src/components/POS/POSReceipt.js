@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import './POSReceipt.css';
 
-const POSReceipt = ({ transaction, onClose }) => {
+const POSReceipt = ({ transaction, onClose, pharmacyName, isElectron = false }) => {
   const formatPrice = (price) => {
     return new Intl.NumberFormat('en-PK', {
       style: 'currency',
@@ -21,9 +21,37 @@ const POSReceipt = ({ transaction, onClose }) => {
     });
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    if (isElectron && window.electronAPI && window.electronAPI.printThermalReceipt) {
+      // Electron thermal printer print
+      try {
+        const result = await window.electronAPI.printThermalReceipt(transaction, pharmacyName);
+        if (result) {
+          if (result.saved && result.filePath) {
+            // Show notification about saved file location
+            setTimeout(() => {
+              const fileName = result.filePath.split(/[/\\]/).pop();
+              alert(`Receipt saved to:\n${result.filePath}\n\n${result.message || 'Receipt saved successfully. If printer is connected, it will also be printed.'}`);
+            }, 500);
+          }
+        }
+      } catch (error) {
+        alert('Error processing receipt. Please check console for details.');
+      }
+    } else {
+      // Browser print
+      window.print();
+    }
   };
+
+  // Auto-print for thermal printer in Electron mode (but don't auto-close)
+  useEffect(() => {
+    if (isElectron && window.electronAPI && window.electronAPI.printThermalReceipt) {
+      // Auto-print when receipt is shown, but let user close manually
+      handlePrint();
+      // Don't auto-close - let user manually close after printing
+    }
+  }, [isElectron, transaction]);
 
   return (
     <div className="receipt-container">
@@ -38,7 +66,7 @@ const POSReceipt = ({ transaction, onClose }) => {
 
       <div className="receipt" id="receipt">
         <div className="receipt-header">
-          <h1>💊 Pharmacy Receipt</h1>
+          <h1 className="pharmacy-name">{pharmacyName || '💊 Pharmacy Receipt'}</h1>
           <p className="receipt-subtitle">Thank you for your purchase!</p>
         </div>
 

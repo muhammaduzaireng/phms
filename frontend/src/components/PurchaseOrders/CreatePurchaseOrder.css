@@ -120,6 +120,23 @@
   transform: translateY(-50%);
   font-size: 18px;
   z-index: 1;
+  pointer-events: none;
+}
+
+.loading-spinner {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+  z-index: 1;
+  pointer-events: none;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: translateY(-50%) rotate(0deg); }
+  to { transform: translateY(-50%) rotate(360deg); }
 }
 
 .product-search-input {
@@ -129,6 +146,12 @@
   border-radius: 8px;
   font-size: 16px;
   transition: all 0.3s ease;
+}
+
+.product-search-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .product-search-input:focus {
@@ -157,11 +180,27 @@
 
 .search-results {
   margin-top: 10px;
-  max-height: 300px;
+  max-height: 350px;
   overflow-y: auto;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
   background: white;
+  position: relative;
+  z-index: 10;
+}
+
+.search-loading,
+.search-no-results {
+  padding: 20px;
+  text-align: center;
+  color: #666;
+  font-style: italic;
+}
+
+.search-no-results {
+  padding: 15px;
+  color: #999;
+  font-size: 0.9rem;
 }
 
 .search-result-item {
@@ -171,8 +210,10 @@
   transition: all 0.2s ease;
 }
 
-.search-result-item:hover {
-  background: #f8f9fa;
+.search-result-item:hover,
+.search-result-item.selected {
+  background: #e3f2fd;
+  border-left: 3px solid #667eea;
 }
 
 .search-result-item:last-child {
@@ -184,11 +225,38 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 5px;
+  gap: 10px;
+}
+
+.result-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
 }
 
 .result-info strong {
   color: #333;
   font-size: 0.95rem;
+  flex: 1;
+}
+
+.product-type-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.product-type-badge.medicine {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.product-type-badge.custom {
+  background: #f3e5f5;
+  color: #7b1fa2;
 }
 
 .result-price {
@@ -200,6 +268,12 @@
 .search-result-item small {
   color: #666;
   font-size: 0.85rem;
+  display: block;
+  margin-top: 3px;
+}
+
+.search-result-item small:not(:last-child) {
+  margin-bottom: 2px;
 }
 
 .items-list {

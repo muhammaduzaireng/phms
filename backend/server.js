@@ -1,22 +1,37 @@
 const express = require('express');
 const cors = require('cors');
 const { testConnections } = require('./config/database');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Middleware
+// Middleware - CORS configuration for network access
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://172.20.10.3:3000'
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Allow localhost origins
+    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+      return callback(null, true);
+    }
+    
+    // Allow local network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    const localNetworkPattern = /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/;
+    if (localNetworkPattern.test(origin)) {
+      return callback(null, true);
+    }
+    
+    // Allow all origins in development (you can restrict this in production)
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../frontend/build')));
 
 // Test database connections on startup
 testConnections().catch(err => {
@@ -47,11 +62,30 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
-});
+// Get local IP address for network access
+const os = require('os');
+function getLocalIPAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const devName in interfaces) {
+    const iface = interfaces[devName];
+    for (let i = 0; i < iface.length; i++) {
+      const alias = iface[i];
+      if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
+        return alias.address;
+      }
+    }
+  }
+  return 'localhost';
+}
 
-app.listen(PORT, '0.0.0.0', () => {
+const HOST = process.env.HOST || '0.0.0.0'; // Bind to all network interfaces
+const LOCAL_IP = getLocalIPAddress();
+
+app.listen(PORT, HOST, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📊 API available at http://localhost:${PORT}/api`);
+  console.log(`📊 API available at:`);
+  console.log(`   - Local: http://localhost:${PORT}/api`);
+  console.log(`   - Network: http://${LOCAL_IP}:${PORT}/api`);
+  console.log(`\n💡 To access from another device on the same network:`);
+  console.log(`   Update frontend API_BASE_URL to: http://${LOCAL_IP}:${PORT}`);
 });

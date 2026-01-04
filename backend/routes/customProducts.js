@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const { verifyToken } = require('./auth');
 const { usersPool } = require('../config/database');
 
-// Get custom products for a user
-router.get('/', async (req, res) => {
+// Get custom products for a user (requires authentication)
+router.get('/', verifyToken, async (req, res) => {
   try {
-    const { userId = 1 } = req.query;
+    const userId = req.user.id;
     const [products] = await usersPool.query(
       'SELECT * FROM custom_products WHERE user_id = ? ORDER BY created_at DESC',
       [userId]
@@ -17,10 +18,11 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create custom product
-router.post('/', async (req, res) => {
+// Create custom product (requires authentication)
+router.post('/', verifyToken, async (req, res) => {
   try {
-    const { userId = 1, name, description, category, unit, barcode, price } = req.body;
+    const userId = req.user.id;
+    const { name, description, category, unit, barcode, price } = req.body;
 
     if (!name || !price) {
       return res.status(400).json({ error: 'Name and price are required' });
@@ -41,10 +43,10 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update custom product
-router.put('/:id', async (req, res) => {
+// Update custom product (requires authentication)
+router.put('/:id', verifyToken, async (req, res) => {
   try {
-    const { userId = 1 } = req.query;
+    const userId = req.user.id;
     const { name, description, category, unit, barcode, price } = req.body;
 
     await usersPool.query(
@@ -61,10 +63,10 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Delete custom product
-router.delete('/:id', async (req, res) => {
+// Delete custom product (requires authentication)
+router.delete('/:id', verifyToken, async (req, res) => {
   try {
-    const { userId = 1 } = req.query;
+    const userId = req.user.id;
 
     await usersPool.query(
       'DELETE FROM custom_products WHERE id = ? AND user_id = ?',

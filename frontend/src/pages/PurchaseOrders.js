@@ -5,7 +5,7 @@ import API_BASE_URL from '../config/api';
 import CreatePurchaseOrder from '../components/PurchaseOrders/CreatePurchaseOrder';
 import PurchaseOrderDetail from '../components/PurchaseOrders/PurchaseOrderDetail';
 
-const PurchaseOrders = ({ onNavigate }) => {
+const PurchaseOrders = ({ onNavigate, user, token, onOrderClick, onCreateClick }) => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -23,7 +23,12 @@ const PurchaseOrders = ({ onNavigate }) => {
       if (statusFilter) params.append('status', statusFilter);
       params.append('limit', '100');
 
-      const response = await fetch(`${API_BASE_URL}/api/purchase-orders?${params}`);
+      const authToken = token || localStorage.getItem('pharmacyToken') || localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/purchase-orders?${params}`, {
+        headers: authToken ? {
+          'Authorization': `Bearer ${authToken}`
+        } : {}
+      });
       if (response.ok) {
         const data = await response.json();
         setOrders(data.orders);
@@ -37,10 +42,12 @@ const PurchaseOrders = ({ onNavigate }) => {
 
   const handleStatusUpdate = async (orderId, newStatus, receivedDate) => {
     try {
+      const authToken = token || localStorage.getItem('pharmacyToken') || localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/api/purchase-orders/${orderId}/status`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': authToken ? `Bearer ${authToken}` : ''
         },
         body: JSON.stringify({ status: newStatus, receivedDate })
       });
@@ -78,6 +85,7 @@ const PurchaseOrders = ({ onNavigate }) => {
     const colors = {
       pending: '#ffc107',
       approved: '#17a2b8',
+      partial: '#ff9800',
       received: '#28a745',
       cancelled: '#dc3545'
     };
@@ -93,8 +101,8 @@ const PurchaseOrders = ({ onNavigate }) => {
   }
 
   return (
-    <div className="purchase-orders-container">
-      <Navigation currentPage="purchase-orders" onNavigate={onNavigate} />
+      <div className="purchase-orders-container">
+      {!onNavigate && <Navigation currentPage="purchase-orders" onNavigate={onNavigate} />}
       <div className="po-header">
         <h1>📦 Purchase Orders</h1>
         <div className="po-header-actions">
@@ -106,10 +114,17 @@ const PurchaseOrders = ({ onNavigate }) => {
             <option value="">All Status</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
-            <option value="received">Received</option>
+            <option value="partial">Partially Completed</option>
+            <option value="received">Completed</option>
             <option value="cancelled">Cancelled</option>
           </select>
-          <button className="btn-create" onClick={() => setShowCreate(true)}>
+          <button className="btn-create" onClick={() => {
+            if (onCreateClick) {
+              onCreateClick();
+            } else {
+              setShowCreate(true);
+            }
+          }}>
             + Create Purchase Order
           </button>
         </div>
@@ -128,12 +143,18 @@ const PurchaseOrders = ({ onNavigate }) => {
             <div
               key={order.id}
               className="order-card"
-              onClick={() => setSelectedOrder(order)}
+              onClick={() => {
+                if (onOrderClick) {
+                  onOrderClick(order);
+                } else {
+                  setSelectedOrder(order);
+                }
+              }}
             >
               <div className="order-header">
                 <div>
-                  <strong>{order.id}</strong>
-                  <span className="order-date">{formatDate(order.date)}</span>
+                  <strong>{order.po_number || `PO-${order.id}`}</strong>
+                  <span className="order-date">{formatDate(order.created_at || order.date)}</span>
                 </div>
                 <span
                   className="order-status"
@@ -144,14 +165,14 @@ const PurchaseOrders = ({ onNavigate }) => {
               </div>
               <div className="order-details">
                 <div className="order-info">
-                  <p><strong>Supplier:</strong> {order.supplier.name}</p>
-                  {order.expectedDate && (
-                    <p><strong>Expected:</strong> {formatDate(order.expectedDate)}</p>
+                  <p><strong>Supplier:</strong> {order.supplier_name || (order.supplier && order.supplier.name) || 'N/A'}</p>
+                  {(order.expected_date || order.expectedDate) && (
+                    <p><strong>Expected:</strong> {formatDate(order.expected_date || order.expectedDate)}</p>
                   )}
-                  <p><strong>Items:</strong> {order.items.length}</p>
+                  <p><strong>Items:</strong> {order.items ? order.items.length : 0}</p>
                 </div>
                 <div className="order-total">
-                  {formatPrice(order.subtotal)}
+                  {formatPrice(order.subtotal || 0)}
                 </div>
               </div>
             </div>
@@ -161,6 +182,7 @@ const PurchaseOrders = ({ onNavigate }) => {
 
       {showCreate && (
         <CreatePurchaseOrder
+          token={token || localStorage.getItem('pharmacyToken') || localStorage.getItem('token')}
           onClose={() => setShowCreate(false)}
           onSuccess={() => {
             setShowCreate(false);

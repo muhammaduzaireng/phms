@@ -32,6 +32,7 @@ const PurchaseOrderDetail = ({ order, onClose, onStatusUpdate }) => {
     const colors = {
       pending: '#ffc107',
       approved: '#17a2b8',
+      partial: '#ff9800',
       received: '#28a745',
       cancelled: '#dc3545'
     };
@@ -56,7 +57,7 @@ const PurchaseOrderDetail = ({ order, onClose, onStatusUpdate }) => {
               </div>
               <div className="detail-item">
                 <strong>Date:</strong>
-                <span>{formatDate(order.date)}</span>
+                <span>{formatDate(order.created_at || order.date)}</span>
               </div>
               <div className="detail-item">
                 <strong>Status:</strong>
@@ -67,10 +68,10 @@ const PurchaseOrderDetail = ({ order, onClose, onStatusUpdate }) => {
                   {order.status.toUpperCase()}
                 </span>
               </div>
-              {order.receivedDate && (
+              {(order.received_date || order.receivedDate) && (
                 <div className="detail-item">
                   <strong>Received Date:</strong>
-                  <span>{formatDate(order.receivedDate)}</span>
+                  <span>{formatDate(order.received_date || order.receivedDate)}</span>
                 </div>
               )}
             </div>
@@ -81,12 +82,12 @@ const PurchaseOrderDetail = ({ order, onClose, onStatusUpdate }) => {
             <div className="detail-grid">
               <div className="detail-item">
                 <strong>Name:</strong>
-                <span>{order.supplier.name}</span>
+                <span>{order.supplier_name || (order.supplier && order.supplier.name) || 'N/A'}</span>
               </div>
-              {order.supplier.contact && (
+              {(order.supplier_contact || (order.supplier && order.supplier.contact)) && (
                 <div className="detail-item">
                   <strong>Contact:</strong>
-                  <span>{order.supplier.contact}</span>
+                  <span>{order.supplier_contact || (order.supplier && order.supplier.contact)}</span>
                 </div>
               )}
             </div>
@@ -119,10 +120,10 @@ const PurchaseOrderDetail = ({ order, onClose, onStatusUpdate }) => {
             </div>
           </div>
 
-          {order.expectedDate && (
+          {(order.expected_date || order.expectedDate) && (
             <div className="detail-section">
               <h3>Expected Delivery</h3>
-              <p>{formatDate(order.expectedDate)}</p>
+              <p>{formatDate(order.expected_date || order.expectedDate)}</p>
             </div>
           )}
 
@@ -143,15 +144,17 @@ const PurchaseOrderDetail = ({ order, onClose, onStatusUpdate }) => {
               >
                 <option value="pending">Pending</option>
                 <option value="approved">Approved</option>
-                <option value="received">Received</option>
+                <option value="partial">Partially Completed</option>
+                <option value="received">Completed / Received</option>
                 <option value="cancelled">Cancelled</option>
               </select>
-              {newStatus === 'received' && (
+              {(newStatus === 'received' || newStatus === 'partial') && (
                 <input
                   type="date"
                   value={receivedDate}
                   onChange={(e) => setReceivedDate(e.target.value)}
                   className="received-date"
+                  placeholder="Received Date"
                 />
               )}
               <button className="btn-update" onClick={handleStatusChange}>

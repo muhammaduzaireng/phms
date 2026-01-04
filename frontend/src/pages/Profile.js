@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import './Profile.css';
 import Navigation from '../components/Navigation';
+import ChangePassword from '../components/Profile/ChangePassword';
 import API_BASE_URL from '../config/api';
 
-const Profile = ({ onNavigate }) => {
+const Profile = ({ onNavigate, user, token }) => {
   const [profile, setProfile] = useState({
     pharmacyName: '',
     ownerName: '',
@@ -18,6 +19,7 @@ const Profile = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   useEffect(() => {
     fetchProfile();
@@ -25,7 +27,11 @@ const Profile = ({ onNavigate }) => {
 
   const fetchProfile = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/profile`);
+      const response = await fetch(`${API_BASE_URL}/api/profile`, {
+        headers: token ? {
+          'Authorization': `Bearer ${token}`
+        } : {}
+      });
       if (response.ok) {
         const data = await response.json();
         setProfile(data);
@@ -51,7 +57,8 @@ const Profile = ({ onNavigate }) => {
       const response = await fetch(`${API_BASE_URL}/api/profile`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify(profile)
       });
@@ -204,11 +211,25 @@ const Profile = ({ onNavigate }) => {
         </div>
 
         <div className="form-actions">
+          <button 
+            type="button" 
+            className="btn-change-password" 
+            onClick={() => setShowChangePassword(true)}
+          >
+            🔒 Change Password
+          </button>
           <button type="submit" className="btn-save" disabled={saving}>
             {saving ? 'Saving...' : 'Save Profile'}
           </button>
         </div>
       </form>
+
+      {showChangePassword && (
+        <ChangePassword
+          token={token}
+          onClose={() => setShowChangePassword(false)}
+        />
+      )}
     </div>
   );
 };

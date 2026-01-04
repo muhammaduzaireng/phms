@@ -119,7 +119,26 @@
 
 .form-actions {
   margin-top: 30px;
-  text-align: center;
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+}
+
+.btn-change-password {
+  padding: 15px 30px;
+  background: #17a2b8;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-change-password:hover {
+  background: #138496;
+  transform: translateY(-2px);
 }
 
 .btn-save {

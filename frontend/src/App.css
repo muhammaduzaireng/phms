@@ -47,16 +47,21 @@
   border-color: transparent;
 }
 
-.admin-badge {
+.admin-badge,
+.pharmacy-badge {
   max-width: 1200px;
-  margin: 0 auto;
+  margin: 0 auto 10px;
   padding: 10px 20px;
-  background: #fff3cd;
-  border-left: 4px solid #ffc107;
+  border-left: 4px solid;
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-weight: 600;
+}
+
+.admin-badge {
+  background: #fff3cd;
+  border-color: #ffc107;
   color: #856404;
 }
 
@@ -72,6 +77,26 @@
 
 .admin-badge button:hover {
   background: #ffb300;
+}
+
+.pharmacy-badge {
+  background: #d1ecf1;
+  border-color: #17a2b8;
+  color: #0c5460;
+}
+
+.pharmacy-badge button {
+  padding: 6px 12px;
+  background: #17a2b8;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.pharmacy-badge button:hover {
+  background: #138496;
 }
 
 .container {

@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const { verifyToken } = require('./auth');
 const { usersPool } = require('../config/database');
 
-// Get purchase orders
-router.get('/', async (req, res) => {
+// Get purchase orders (requires authentication)
+router.get('/', verifyToken, async (req, res) => {
   try {
-    const { userId = 1, status, page = 1, limit = 50 } = req.query;
+    const userId = req.user.id;
+    const { status, page = 1, limit = 50 } = req.query;
 
     let query = 'SELECT * FROM purchase_orders WHERE user_id = ?';
     const params = [userId];
@@ -44,10 +46,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get single purchase order
-router.get('/:id', async (req, res) => {
+// Get single purchase order (requires authentication)
+router.get('/:id', verifyToken, async (req, res) => {
   try {
-    const { userId = 1 } = req.query;
+    const userId = req.user.id;
 
     const [orders] = await usersPool.query(
       'SELECT * FROM purchase_orders WHERE id = ? AND user_id = ?',
@@ -71,10 +73,11 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create purchase order
-router.post('/', async (req, res) => {
+// Create purchase order (requires authentication)
+router.post('/', verifyToken, async (req, res) => {
   try {
-    const { userId = 1, items, supplierName, supplierContact, expectedDate, notes } = req.body;
+    const userId = req.user.id;
+    const { items, supplierName, supplierContact, expectedDate, notes } = req.body;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ error: 'Items are required' });
@@ -121,13 +124,13 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update purchase order status
-router.put('/:id/status', async (req, res) => {
+// Update purchase order status (requires authentication)
+router.put('/:id/status', verifyToken, async (req, res) => {
   try {
-    const { userId = 1 } = req.query;
+    const userId = req.user.id;
     const { status, receivedDate } = req.body;
 
-    const validStatuses = ['pending', 'approved', 'received', 'cancelled', 'returned'];
+    const validStatuses = ['pending', 'approved', 'received', 'cancelled', 'returned', 'partial'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }

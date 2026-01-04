@@ -198,13 +198,19 @@ router.post('/pharmacies', verifyAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Username already exists' });
     }
 
+    // Generate default password (pharmacy owner should change it)
+    const defaultPassword = 'password123';
+    const bcrypt = require('bcryptjs');
+    const passwordHash = await bcrypt.hash(defaultPassword, 10);
+
     const [result] = await usersPool.query(
       `INSERT INTO users 
-      (username, pharmacy_name, owner_name, address, city, phone, email, license_number, tax_id, 
+      (username, password_hash, pharmacy_name, owner_name, address, city, phone, email, license_number, tax_id, 
        created_by_admin_id, subscription_status, subscription_expires_at, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
       [
         username,
+        passwordHash,
         pharmacyName,
         ownerName || null,
         address || null,
@@ -218,6 +224,12 @@ router.post('/pharmacies', verifyAdmin, async (req, res) => {
         subscriptionExpiresAt || null
       ]
     );
+
+    // Log password for admin (in production, send via secure email)
+    console.log(`\n📋 Pharmacy Account Created:`);
+    console.log(`   Username: ${username}`);
+    console.log(`   Default Password: ${defaultPassword}`);
+    console.log(`   ⚠️  Pharmacy owner should change password after first login\n`);
 
     // Log activity
     await usersPool.query(

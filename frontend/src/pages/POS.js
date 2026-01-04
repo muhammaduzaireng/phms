@@ -7,12 +7,69 @@ import POSCheckout from '../components/POS/POSCheckout';
 import POSReceipt from '../components/POS/POSReceipt';
 import API_BASE_URL from '../config/api';
 
-const POS = ({ onNavigate }) => {
+const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
   const [cart, setCart] = useState([]);
   const [showCheckout, setShowCheckout] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [discount, setDiscount] = useState(0);
   const [tax, setTax] = useState(0);
+
+  // Get token from localStorage if not provided
+  const authToken = token || localStorage.getItem('pharmacyToken');
+
+  // Keyboard shortcuts for sales management
+  useEffect(() => {
+    if (!isElectron) return; // Only enable in Electron mode
+
+    const handleKeyPress = (e) => {
+      // Ignore if typing in input fields
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // ESC - Close checkout/receipt
+      if (e.key === 'Escape') {
+        if (showCheckout) setShowCheckout(false);
+        if (receipt) setReceipt(null);
+      }
+
+      // F1 - Focus search
+      if (e.key === 'F1') {
+        e.preventDefault();
+        const searchInput = document.querySelector('.product-search-input');
+        if (searchInput) searchInput.focus();
+      }
+
+      // F2 - Open checkout
+      if (e.key === 'F2') {
+        e.preventDefault();
+        if (cart.length > 0) setShowCheckout(true);
+      }
+
+      // F3 - Clear cart
+      if (e.key === 'F3') {
+        e.preventDefault();
+        if (cart.length > 0 && window.confirm('Clear cart?')) {
+          clearCart();
+        }
+      }
+
+      // Ctrl+Enter - Quick checkout (if checkout is open)
+      if (e.key === 'Enter' && e.ctrlKey) {
+        e.preventDefault();
+        const checkoutBtn = document.querySelector('.checkout-button');
+        if (checkoutBtn) checkoutBtn.click();
+      }
+
+      // Number keys - Quick quantity selection (when product selected)
+      if (e.key >= '1' && e.key <= '9' && e.ctrlKey) {
+        // Could be used for quick quantity entry
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [cart, showCheckout, receipt, isElectron]);
 
   const addToCart = (medicine) => {
     const existingItem = cart.find(item => item.reg_number === medicine.reg_number);
@@ -83,12 +140,16 @@ const POS = ({ onNavigate }) => {
       const response = await fetch(`${API_BASE_URL}/api/pos/checkout`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': authToken ? `Bearer ${authToken}` : ''
         },
         body: JSON.stringify(checkoutData)
       });
-
-      if (!response.ok) throw new Error('Checkout failed');
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Checkout failed' }));
+        throw new Error(errorData.error || 'Checkout failed');
+      }
 
       const data = await response.json();
       setReceipt(data.transaction);
@@ -102,15 +163,32 @@ const POS = ({ onNavigate }) => {
 
   const closeReceipt = () => {
     setReceipt(null);
+    // Clear cart only after user closes receipt (after printing)
+    clearCart();
   };
 
   if (receipt) {
-    return <POSReceipt transaction={receipt} onClose={closeReceipt} />;
+    return (
+      <POSReceipt 
+        transaction={receipt} 
+        onClose={closeReceipt}
+        pharmacyName={user?.pharmacyName || user?.username}
+        isElectron={isElectron}
+      />
+    );
   }
 
   return (
     <div className="pos-container">
-      <Navigation currentPage="pos" onNavigate={onNavigate} />
+      {!isElectron && onNavigate && (
+        <Navigation currentPage="pos" onNavigate={onNavigate} />
+      )}
+      {user && (
+        <div className="pos-user-info">
+          <span>🏥 {user.pharmacyName || user.username}</span>
+          {onLogout && <button className="logout-btn" onClick={onLogout}>Logout</button>}
+        </div>
+      )}
       <div className="pos-header">
         <h1>💊 Point of Sale (POS)</h1>
         <div className="pos-header-actions">
@@ -122,7 +200,7 @@ const POS = ({ onNavigate }) => {
 
       <div className="pos-main">
         <div className="pos-left">
-          <POSProductSearch onAddToCart={addToCart} />
+          <POSProductSearch onAddToCart={addToCart} token={authToken} />
         </div>
 
         <div className="pos-right">

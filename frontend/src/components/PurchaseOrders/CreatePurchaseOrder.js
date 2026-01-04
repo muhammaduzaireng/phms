@@ -3,7 +3,7 @@ import './CreatePurchaseOrder.css';
 import API_BASE_URL from '../../config/api';
 import AddCustomProduct from '../POS/AddCustomProduct';
 
-const CreatePurchaseOrder = ({ onClose, onSuccess }) => {
+const CreatePurchaseOrder = ({ onClose, onSuccess, token }) => {
   const [items, setItems] = useState([{ name: '', quantity: 1, price: 0 }]);
   const [supplierName, setSupplierName] = useState('');
   const [supplierContact, setSupplierContact] = useState('');
@@ -13,36 +13,67 @@ const CreatePurchaseOrder = ({ onClose, onSuccess }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const searchInputRef = React.useRef(null);
+  const dropdownRef = React.useRef(null);
 
-  useEffect(() => {
-    const delayDebounce = setTimeout(() => {
-      if (searchTerm.length >= 2) {
-        searchProducts();
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
+  const searchProducts = React.useCallback(async () => {
+    if (!searchTerm || searchTerm.trim().length < 1) {
+      setSearchResults([]);
+      return;
+    }
 
-    return () => clearTimeout(delayDebounce);
-  }, [searchTerm]);
-
-  const searchProducts = async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (searchTerm) params.append('search', searchTerm);
+      if (searchTerm && searchTerm.trim()) {
+        params.append('search', searchTerm.trim());
+      }
 
-      const response = await fetch(`${API_BASE_URL}/api/pos/products?${params}`);
+      const authToken = token || localStorage.getItem('token');
+      if (!authToken) {
+        setSearchResults([]);
+        setLoading(false);
+        return;
+      }
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/pos/products?${params}`, {
+        method: 'GET',
+        headers: headers
+      });
+
       if (response.ok) {
         const data = await response.json();
-        setSearchResults(data.products.slice(0, 10)); // Limit to 10 results
+        const productsArray = Array.isArray(data.products) ? data.products : [];
+        setSearchResults(productsArray.slice(0, 15)); // Limit to 15 results
+      } else {
+        setSearchResults([]);
       }
     } catch (err) {
-      console.error('Error searching products:', err);
+      setSearchResults([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchTerm, token]);
+
+  useEffect(() => {
+    // Search immediately on first character, then debounce for subsequent characters
+    if (searchTerm.trim().length === 1) {
+      searchProducts();
+    } else if (searchTerm.trim().length > 1) {
+      const delayDebounce = setTimeout(() => {
+        searchProducts();
+      }, 200);
+      return () => clearTimeout(delayDebounce);
+    } else {
+      setSearchResults([]);
+    }
+  }, [searchTerm, searchProducts]);
 
   const addItem = () => {
     setItems([...items, { name: '', quantity: 1, price: 0 }]);
@@ -57,6 +88,47 @@ const CreatePurchaseOrder = ({ onClose, onSuccess }) => {
     setItems([...items, newItem]);
     setSearchTerm('');
     setSearchResults([]);
+    setSelectedIndex(-1);
+    searchInputRef.current?.focus();
+  };
+
+  // Scroll selected item into view
+  const scrollToSelectedItem = () => {
+    if (selectedIndex >= 0 && dropdownRef.current) {
+      const selectedElement = dropdownRef.current.children[selectedIndex];
+      if (selectedElement) {
+        setTimeout(() => {
+          selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 50);
+      }
+    }
+  };
+
+  // Handle keyboard navigation
+  const handleKeyDown = (e) => {
+    if (searchResults.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => {
+        const newIndex = prev < searchResults.length - 1 ? prev + 1 : prev;
+        setTimeout(() => scrollToSelectedItem(), 0);
+        return newIndex;
+      });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => {
+        const newIndex = prev > 0 ? prev - 1 : -1;
+        setTimeout(() => scrollToSelectedItem(), 0);
+        return newIndex;
+      });
+    } else if (e.key === 'Enter' && selectedIndex >= 0 && selectedIndex < searchResults.length) {
+      e.preventDefault();
+      addProductToItems(searchResults[selectedIndex]);
+    } else if (e.key === 'Escape') {
+      setSearchResults([]);
+      setSelectedIndex(-1);
+    }
   };
 
   const handleProductAdded = (product) => {
@@ -96,7 +168,8 @@ const CreatePurchaseOrder = ({ onClose, onSuccess }) => {
       const response = await fetch(`${API_BASE_URL}/api/purchase-orders`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify({
           items: validItems,
@@ -159,13 +232,29 @@ const CreatePurchaseOrder = ({ onClose, onSuccess }) => {
             {/* Product Search */}
             <div className="product-search-section">
               <div className="search-input-wrapper">
-                <span className="search-icon">🔍</span>
+                {!loading && (!searchTerm || searchTerm.trim().length === 0) && (
+                  <span className="search-icon">🔍</span>
+                )}
+                {loading && (
+                  <span className="loading-spinner">⏳</span>
+                )}
                 <input
+                  ref={searchInputRef}
                   type="text"
                   className="product-search-input"
-                  placeholder="Search medicines or products..."
+                  placeholder="Search medicines from centralized DB or custom products... (↑↓ to navigate, Enter to select)"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setSelectedIndex(-1);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onFocus={() => {
+                    if (searchTerm.trim().length >= 1 && searchResults.length > 0) {
+                      // Keep dropdown open if there are results
+                    }
+                  }}
+                  autoComplete="off"
                 />
                 <button
                   type="button"
@@ -176,29 +265,44 @@ const CreatePurchaseOrder = ({ onClose, onSuccess }) => {
                 </button>
               </div>
               
-              {searchResults.length > 0 && (
-                <div className="search-results">
-                  {searchResults.map((product) => (
-                    <div
-                      key={product.reg_number || product.id}
-                      className="search-result-item"
-                      onClick={() => addProductToItems(product)}
-                    >
-                      <div className="result-info">
-                        <strong>{product.product_name}</strong>
-                        <span className="result-price">
-                          {new Intl.NumberFormat('en-PK', {
-                            style: 'currency',
-                            currency: 'PKR',
-                            minimumFractionDigits: 2
-                          }).format(product.price_rs)}
-                        </span>
+              {(searchResults.length > 0 || (loading && searchTerm.trim().length >= 1)) && (
+                <div className="search-results" ref={dropdownRef}>
+                  {loading && searchTerm.trim().length >= 1 ? (
+                    <div className="search-loading">Searching...</div>
+                  ) : searchResults.length > 0 ? (
+                    searchResults.map((product, index) => (
+                      <div
+                        key={product.reg_number || product.id || product.custom_product_id}
+                        className={`search-result-item ${selectedIndex === index ? 'selected' : ''}`}
+                        onClick={() => addProductToItems(product)}
+                        onMouseEnter={() => setSelectedIndex(index)}
+                      >
+                        <div className="result-info">
+                          <div className="result-name-wrapper">
+                            <strong>{product.product_name}</strong>
+                            <span className={`product-type-badge ${product.isCustom ? 'custom' : 'medicine'}`}>
+                              {product.isCustom ? 'Custom' : 'Medicine'}
+                            </span>
+                          </div>
+                          <span className="result-price">
+                            {new Intl.NumberFormat('en-PK', {
+                              style: 'currency',
+                              currency: 'PKR',
+                              minimumFractionDigits: 2
+                            }).format(product.price_rs || 0)}
+                          </span>
+                        </div>
+                        {product.generic_name && (
+                          <small>{product.generic_name}</small>
+                        )}
+                        {product.manufacturer && (
+                          <small>Manufacturer: {product.manufacturer}</small>
+                        )}
                       </div>
-                      {product.generic_name && (
-                        <small>{product.generic_name}</small>
-                      )}
-                    </div>
-                  ))}
+                    ))
+                  ) : searchTerm.trim().length >= 1 ? (
+                    <div className="search-no-results">No products found. Try a different search term or add a custom product.</div>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -288,6 +392,7 @@ const CreatePurchaseOrder = ({ onClose, onSuccess }) => {
 
       {showAddProduct && (
         <AddCustomProduct
+          token={token}
           onClose={() => setShowAddProduct(false)}
           onSuccess={handleProductAdded}
         />

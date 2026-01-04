@@ -1,5 +1,7 @@
 .receipt-container {
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: auto;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 20px;
 }
@@ -199,26 +201,183 @@
   margin-top: 10px;
 }
 
-/* Print Styles */
+/* Pharmacy Name Styles */
+.pharmacy-name {
+  font-size: 1.8rem;
+  margin: 0 0 10px 0;
+  color: #333;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Print Styles - Optimized for Thermal Printer */
 @media print {
-  .receipt-container {
-    background: white;
+  @page {
+    size: 80mm auto; /* Standard thermal printer width */
+    margin: 0;
+    size: portrait;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color-adjust: exact;
+  }
+
+  body {
+    margin: 0;
     padding: 0;
   }
 
+  .receipt-container {
+    background: white !important;
+    padding: 0 !important;
+    width: 80mm !important;
+    margin: 0 auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
   .receipt-actions {
-    display: none;
+    display: none !important;
   }
 
   .receipt {
-    box-shadow: none;
-    padding: 20px;
+    box-shadow: none !important;
+    padding: 3mm !important;
+    width: 100% !important;
+    font-size: 9pt !important;
+    line-height: 1.15 !important;
+    margin: 0 !important;
+    page-break-after: avoid !important;
+  }
+
+  .receipt-header {
+    margin-bottom: 5px !important;
+    padding-bottom: 5px !important;
+  }
+
+  .receipt-header h1 {
+    font-size: 1.1rem !important;
+    margin-bottom: 3px !important;
+    line-height: 1.2 !important;
+  }
+
+  .receipt-subtitle {
+    font-size: 0.75rem !important;
+    margin: 0 !important;
+  }
+
+  .receipt-info {
+    margin-bottom: 5px !important;
+  }
+
+  .receipt-row {
+    padding: 2px 0 !important;
+    font-size: 0.85rem !important;
+  }
+
+  .receipt-items {
+    margin-bottom: 5px !important;
+  }
+
+  .receipt-items-header {
+    padding: 5px !important;
+    margin-bottom: 5px !important;
+    font-size: 0.85rem !important;
+  }
+
+  .receipt-item {
+    padding: 3px 5px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .receipt-totals {
+    margin-bottom: 5px !important;
+    padding-top: 5px !important;
+  }
+
+  .receipt-total-row {
+    padding: 3px 0 !important;
+    font-size: 0.85rem !important;
+  }
+
+  .receipt-total-row.final {
+    font-size: 1rem !important;
+    margin-top: 5px !important;
+    padding-top: 5px !important;
+  }
+
+  .receipt-payment {
+    margin-bottom: 5px !important;
+    padding: 5px !important;
+  }
+
+  .receipt-footer {
+    padding-top: 5px !important;
+    margin-top: 5px !important;
+    font-size: 0.75rem !important;
+  }
+
+  .receipt-footer p {
+    margin: 2px 0 !important;
+  }
+
+  /* Prevent page breaks */
+  .receipt,
+  .receipt-header,
+  .receipt-info,
+  .receipt-items,
+  .receipt-totals,
+  .receipt-payment,
+  .receipt-footer {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   .btn-print,
   .btn-close {
     display: none;
   }
+
+  /* Thermal printer optimizations */
+  .receipt-item {
+    padding: 8px 0;
+    font-size: 11pt;
+  }
+
+  .receipt-total-row.final {
+    font-size: 1.3rem;
+    padding: 10px 0;
+    border-top: 2px solid #000;
+  }
+
+  /* Remove colors for thermal printer */
+  * {
+    color: #000 !important;
+    background: white !important;
+  }
+}
+
+/* Thermal Printer Specific Styles */
+.thermal-receipt {
+  width: 80mm;
+  max-width: 80mm;
+  margin: 0 auto;
+  font-family: 'Courier New', monospace;
+  font-size: 12pt;
+  line-height: 1.4;
+  padding: 5mm;
+}
+
+.thermal-receipt .pharmacy-name {
+  text-align: center;
+  font-weight: bold;
+  font-size: 14pt;
+  margin-bottom: 5mm;
+  border-bottom: 1px solid #000;
+  padding-bottom: 3mm;
 }
 
 @media (max-width: 768px) {

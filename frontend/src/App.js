@@ -8,16 +8,25 @@ import Header from './components/Header';
 import Navigation from './components/Navigation';
 import POS from './pages/POS';
 import SalesHistory from './pages/SalesHistory';
+import StockManagement from './pages/StockManagement';
 import PurchaseOrders from './pages/PurchaseOrders';
 import Profile from './pages/Profile';
 import AdminLogin from './pages/Admin/AdminLogin';
 import AdminDashboard from './pages/Admin/AdminDashboard';
+import PharmacyLogin from './pages/PharmacyLogin';
+import ElectronPOS from './pages/ElectronPOS';
 import API_BASE_URL from './config/api';
 
 function App() {
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
+  // Check if running in Electron mode (check after component mounts to avoid hook issues)
+  const [isElectron, setIsElectron] = React.useState(false);
+  
   const [currentPage, setCurrentPage] = useState('browse');
   const [admin, setAdmin] = useState(null);
   const [adminToken, setAdminToken] = useState(null);
+  const [pharmacyUser, setPharmacyUser] = useState(null);
+  const [pharmacyToken, setPharmacyToken] = useState(null);
   const [medicines, setMedicines] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -38,23 +47,44 @@ function App() {
   const [manufacturers, setManufacturers] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Check for admin session on mount
+  // Check for Electron mode
+  React.useEffect(() => {
+    // Check for Electron mode
+    const electronMode = window.location.hash === '#electron' || 
+                         (typeof window !== 'undefined' && window.electronAPI);
+    setIsElectron(electronMode);
+  }, []);
+
+  // Check for admin or pharmacy session on mount
   useEffect(() => {
     const savedAdmin = localStorage.getItem('adminUser');
-    const savedToken = localStorage.getItem('adminToken');
-    if (savedAdmin && savedToken) {
+    const savedAdminToken = localStorage.getItem('adminToken');
+    const savedPharmacyUser = localStorage.getItem('pharmacyUser');
+    const savedPharmacyToken = localStorage.getItem('pharmacyToken');
+    
+    if (savedAdmin && savedAdminToken) {
       setAdmin(JSON.parse(savedAdmin));
-      setAdminToken(savedToken);
+      setAdminToken(savedAdminToken);
+    }
+    
+    if (savedPharmacyUser && savedPharmacyToken) {
+      setPharmacyUser(JSON.parse(savedPharmacyUser));
+      setPharmacyToken(savedPharmacyToken);
     }
   }, []);
 
   useEffect(() => {
-    if (currentPage === 'browse') {
+    if (currentPage === 'browse' && !isElectron) {
       fetchMedicines();
       fetchCategories();
       fetchManufacturers();
     }
-  }, [filters, pagination.page, currentPage]);
+  }, [filters, pagination.page, currentPage, isElectron]);
+
+  // Show simplified Electron POS if in Electron mode (AFTER all hooks)
+  if (isElectron) {
+    return <ElectronPOS />;
+  }
 
   const fetchMedicines = async () => {
     try {
@@ -126,6 +156,25 @@ function App() {
     setCurrentPage('browse');
   };
 
+  const handlePharmacyLogin = (userData, token) => {
+    setPharmacyUser(userData);
+    setPharmacyToken(token);
+    setCurrentPage('pos'); // Redirect to POS after login
+  };
+
+  const handlePharmacyLogout = () => {
+    localStorage.removeItem('pharmacyToken');
+    localStorage.removeItem('pharmacyUser');
+    setPharmacyUser(null);
+    setPharmacyToken(null);
+    setCurrentPage('browse');
+  };
+
+  // Pharmacy login route
+  if (currentPage === 'pharmacy-login') {
+    return <PharmacyLogin onLogin={handlePharmacyLogin} />;
+  }
+
   // Admin routes
   if (!admin && (currentPage === 'admin' || currentPage === 'admin-dashboard')) {
     return <AdminLogin onLogin={handleAdminLogin} />;
@@ -162,19 +211,39 @@ function App() {
   };
 
   if (currentPage === 'pos') {
-    return <POS onNavigate={handleNavigate} />;
+    // Check if pharmacy user is logged in
+    if (!pharmacyUser) {
+      return <PharmacyLogin onLogin={handlePharmacyLogin} />;
+    }
+    return <POS onNavigate={handleNavigate} user={pharmacyUser} token={pharmacyToken} onLogout={handlePharmacyLogout} />;
   }
 
   if (currentPage === 'sales') {
-    return <SalesHistory onNavigate={handleNavigate} />;
+    if (!pharmacyUser) {
+      return <PharmacyLogin onLogin={handlePharmacyLogin} />;
+    }
+    return <SalesHistory onNavigate={handleNavigate} user={pharmacyUser} token={pharmacyToken} />;
+  }
+
+  if (currentPage === 'stock') {
+    if (!pharmacyUser) {
+      return <PharmacyLogin onLogin={handlePharmacyLogin} />;
+    }
+    return <StockManagement onNavigate={handleNavigate} user={pharmacyUser} token={pharmacyToken} />;
   }
 
   if (currentPage === 'purchase-orders') {
-    return <PurchaseOrders onNavigate={handleNavigate} />;
+    if (!pharmacyUser) {
+      return <PharmacyLogin onLogin={handlePharmacyLogin} />;
+    }
+    return <PurchaseOrders onNavigate={handleNavigate} user={pharmacyUser} token={pharmacyToken} />;
   }
 
   if (currentPage === 'profile') {
-    return <Profile onNavigate={handleNavigate} />;
+    if (!pharmacyUser) {
+      return <PharmacyLogin onLogin={handlePharmacyLogin} />;
+    }
+    return <Profile onNavigate={handleNavigate} user={pharmacyUser} token={pharmacyToken} />;
   }
 
   if (currentPage === 'admin') {
@@ -188,6 +257,12 @@ function App() {
         <div className="admin-badge">
           <span>Admin Mode</span>
           <button onClick={() => setCurrentPage('admin-dashboard')}>Go to Admin Panel</button>
+        </div>
+      )}
+      {pharmacyUser && (
+        <div className="pharmacy-badge">
+          <span>🏥 {pharmacyUser.pharmacyName || pharmacyUser.username}</span>
+          <button onClick={handlePharmacyLogout}>Logout</button>
         </div>
       )}
       <Header />

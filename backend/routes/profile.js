@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const { verifyToken } = require('./auth');
 const { usersPool } = require('../config/database');
 
-// Get profile
-router.get('/', async (req, res) => {
+// Get profile (for pharmacy users - requires authentication)
+router.get('/', verifyToken, async (req, res) => {
   try {
-    const { userId = 1 } = req.query;
+    const userId = req.user.id;
 
     const [users] = await usersPool.query(
       'SELECT id, pharmacy_name, owner_name, address, city, phone, email, license_number, tax_id, logo_url FROM users WHERE id = ?',
@@ -49,10 +50,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Update profile
-router.put('/', async (req, res) => {
+// Update profile (for pharmacy users - requires authentication)
+router.put('/', verifyToken, async (req, res) => {
   try {
-    const { userId = 1 } = req.query;
+    const userId = req.user.id;
     const { pharmacyName, ownerName, address, city, phone, email, licenseNumber, taxId, logo } = req.body;
 
     // Check if user exists
