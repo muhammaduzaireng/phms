@@ -37,6 +37,8 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:5001',
+      'http://phms.devzytic.com',
+      'https://phms.devzytic.com',
       /\.github\.io$/, // If using GitHub Pages
     ];
     

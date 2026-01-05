@@ -1,0 +1,45 @@
+{
+  "short_name": "Pharmacy POS",
+  "name": "Pharmacy Management System",
+  "description": "Pharmacy POS and Management System with offline support",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#2563eb",
+  "background_color": "#ffffff",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "shortcuts": [
+    {
+      "name": "POS",
+      "short_name": "POS",
+      "description": "Open Point of Sale",
+      "url": "/pos",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Sales History",
+      "short_name": "Sales",
+      "description": "View Sales History",
+      "url": "/sales",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    }
+  ]
+}
+

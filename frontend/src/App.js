@@ -6,6 +6,7 @@ import FilterPanel from './components/FilterPanel';
 import Statistics from './components/Statistics';
 import Header from './components/Header';
 import Navigation from './components/Navigation';
+import OfflineIndicator from './components/OfflineIndicator';
 import POS from './pages/POS';
 import SalesHistory from './pages/SalesHistory';
 import StockManagement from './pages/StockManagement';
@@ -16,6 +17,7 @@ import AdminDashboard from './pages/Admin/AdminDashboard';
 import PharmacyLogin from './pages/PharmacyLogin';
 import ElectronPOS from './pages/ElectronPOS';
 import API_BASE_URL from './config/api';
+import { initDatabase, downloadAllData, checkAndSync, getSyncQueueStatus } from './services/dataSync';
 
 function App() {
   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
@@ -55,7 +57,21 @@ function App() {
     setIsElectron(electronMode);
   }, []);
 
-  // Check for admin or pharmacy session on mount
+  // Initialize database and data sync
+  useEffect(() => {
+    const initDataSync = async () => {
+      try {
+        await initDatabase();
+        console.log('[App] Database initialized');
+      } catch (error) {
+        console.error('[App] Database initialization error:', error);
+      }
+    };
+
+    initDataSync();
+  }, []);
+
+  // Check for admin or pharmacy session on mount and download data
   useEffect(() => {
     const savedAdmin = localStorage.getItem('adminUser');
     const savedAdminToken = localStorage.getItem('adminToken');
@@ -70,8 +86,53 @@ function App() {
     if (savedPharmacyUser && savedPharmacyToken) {
       setPharmacyUser(JSON.parse(savedPharmacyUser));
       setPharmacyToken(savedPharmacyToken);
+      
+      // Download all data when pharmacy user is logged in
+      if (navigator.onLine) {
+        downloadAllData(savedPharmacyToken).then(result => {
+          if (result.success) {
+            console.log('[App] Data downloaded successfully');
+          }
+        });
+      }
     }
   }, []);
+
+  // Listen for online/offline events and sync
+  useEffect(() => {
+    const handleOnline = async () => {
+      console.log('[App] Connection restored');
+      const token = pharmacyToken || localStorage.getItem('pharmacyToken');
+      if (token) {
+        // Sync queue first, then download fresh data
+        await checkAndSync(token);
+      }
+    };
+
+    const handleOffline = () => {
+      console.log('[App] Connection lost - working offline');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Listen for service worker messages
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'SYNC_QUEUE') {
+          const token = pharmacyToken || localStorage.getItem('pharmacyToken');
+          if (token) {
+            checkAndSync(token);
+          }
+        }
+      });
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [pharmacyToken]);
 
   useEffect(() => {
     if (currentPage === 'browse' && !isElectron) {
@@ -252,6 +313,7 @@ function App() {
 
   return (
     <div className="App">
+      <OfflineIndicator />
       <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
       {admin && (
         <div className="admin-badge">

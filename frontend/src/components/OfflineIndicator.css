@@ -1,0 +1,31 @@
+.offline-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 20px;
+  text-align: center;
+  font-weight: 500;
+  font-size: 14px;
+  z-index: 10000;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.offline-indicator.offline {
+  background-color: #ef4444;
+  color: white;
+}
+
+.offline-indicator.online {
+  background-color: #10b981;
+  color: white;
+}
+
+@media (max-width: 768px) {
+  .offline-indicator {
+    font-size: 12px;
+    padding: 10px 16px;
+  }
+}
+

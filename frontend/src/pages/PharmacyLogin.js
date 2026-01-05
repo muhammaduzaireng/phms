@@ -29,10 +29,13 @@ const PharmacyLogin = ({ onLogin }) => {
         localStorage.setItem('pharmacyUser', JSON.stringify(data.user));
         onLogin(data.user, data.token);
       } else {
-        setError(data.error || 'Login failed');
+        // Display error message from server (includes 500 errors)
+        setError(data.error || data.message || `Login failed (${response.status})`);
       }
     } catch (err) {
-      setError('Network error. Please check your connection and try again.');
+      // Network error or JSON parsing error
+      setError('Network error. Please check your connection and server status.');
+      console.error('Login error:', err);
     } finally {
       setLoading(false);
     }

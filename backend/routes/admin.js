@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { usersPool } = require('../config/database');
 
@@ -25,9 +24,8 @@ router.post('/login', async (req, res) => {
     }
 
     const admin = admins[0];
-    const isValidPassword = await bcrypt.compare(password, admin.password_hash);
-
-    if (!isValidPassword) {
+    // Plain text password comparison (no hashing)
+    if (admin.password_hash !== password) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -200,8 +198,7 @@ router.post('/pharmacies', verifyAdmin, async (req, res) => {
 
     // Generate default password (pharmacy owner should change it)
     const defaultPassword = 'password123';
-    const bcrypt = require('bcryptjs');
-    const passwordHash = await bcrypt.hash(defaultPassword, 10);
+    // Store password as plain text (no hashing)
 
     const [result] = await usersPool.query(
       `INSERT INTO users 
@@ -210,7 +207,7 @@ router.post('/pharmacies', verifyAdmin, async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
       [
         username,
-        passwordHash,
+        defaultPassword,
         pharmacyName,
         ownerName || null,
         address || null,

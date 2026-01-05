@@ -43,29 +43,60 @@ router.get('/products', verifyToken, async (req, res) => {
 
     const [customProducts] = await usersPool.query(customQuery, customParams);
 
-    // Transform data to consistent format
+    // Get stock prices for this user (to override default prices)
+    const [stockItems] = await usersPool.query(
+      'SELECT medicine_reg_number, custom_product_id, unit_price FROM stock WHERE user_id = ?',
+      [userId]
+    );
+
+    // Create a map of stock prices
+    const stockPriceMap = {};
+    stockItems.forEach(item => {
+      if (item.medicine_reg_number) {
+        stockPriceMap[`MED-${item.medicine_reg_number}`] = parseFloat(item.unit_price);
+      }
+      if (item.custom_product_id) {
+        stockPriceMap[`CUST-${item.custom_product_id}`] = parseFloat(item.unit_price);
+      }
+    });
+
+    // Transform data to consistent format with stock prices
     const allProducts = [
-      ...medicines.map(m => ({
-        ...m,
-        product_name: m.product_name,
-        price_rs: parseFloat(m.price_rs),
-        reg_number: m.reg_number,
-        generic_name: m.generic_name,
-        manufacturer: m.manufacturer,
-        pack_size: m.pack_size,
-        isCustom: false
-      })),
-      ...customProducts.map(p => ({
-        ...p,
-        product_name: p.name,
-        price_rs: parseFloat(p.price),
-        reg_number: `CUST-${p.id}`,
-        generic_name: p.description,
-        manufacturer: p.category,
-        pack_size: p.unit,
-        isCustom: true,
-        custom_product_id: p.id
-      }))
+      ...medicines.map(m => {
+        const stockKey = `MED-${m.reg_number}`;
+        const price = stockPriceMap[stockKey] !== undefined 
+          ? stockPriceMap[stockKey] 
+          : parseFloat(m.price_rs);
+        
+        return {
+          ...m,
+          product_name: m.product_name,
+          price_rs: price,
+          reg_number: m.reg_number,
+          generic_name: m.generic_name,
+          manufacturer: m.manufacturer,
+          pack_size: m.pack_size,
+          isCustom: false
+        };
+      }),
+      ...customProducts.map(p => {
+        const stockKey = `CUST-${p.id}`;
+        const price = stockPriceMap[stockKey] !== undefined 
+          ? stockPriceMap[stockKey] 
+          : parseFloat(p.price);
+        
+        return {
+          ...p,
+          product_name: p.name,
+          price_rs: price,
+          reg_number: `CUST-${p.id}`,
+          generic_name: p.description,
+          manufacturer: p.category,
+          pack_size: p.unit,
+          isCustom: true,
+          custom_product_id: p.id
+        };
+      })
     ];
 
     res.json({ products: allProducts });

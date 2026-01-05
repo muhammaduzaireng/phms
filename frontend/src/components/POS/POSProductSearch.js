@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './POSProductSearch.css';
 import API_BASE_URL from '../../config/api';
 import AddCustomProduct from './AddCustomProduct';
+import { cacheMedicineSearch, getCachedMedicineSearch } from '../../services/dataSync';
 
 const POSProductSearch = ({ onAddToCart, token }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -34,56 +35,106 @@ const POSProductSearch = ({ onAddToCart, token }) => {
         return;
       }
 
-      const params = new URLSearchParams();
-      if (searchTerm && searchTerm.trim()) {
-        params.append('search', searchTerm.trim());
+      const searchQuery = searchTerm.trim();
+      
+      // Check cache first (if offline or for faster results)
+      if (!navigator.onLine || searchQuery.length > 0) {
+        const cachedResults = getCachedMedicineSearch(searchQuery);
+        if (cachedResults && cachedResults.length > 0) {
+          console.log('[POS Search] Using cached results');
+          setProducts(cachedResults);
+          if (searchQuery.length >= 1) {
+            setShowDropdown(true);
+          }
+          setLoading(false);
+          // Still try to fetch fresh data in background if online
+          if (navigator.onLine) {
+            // Continue to fetch fresh data...
+          } else {
+            return; // Offline - use cache only
+          }
+        }
       }
-      if (selectedCategory) {
-        params.append('category', selectedCategory);
-      }
 
-      const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`
-      };
+      // Fetch from server (if online)
+      if (navigator.onLine) {
+        const params = new URLSearchParams();
+        if (searchQuery) {
+          params.append('search', searchQuery);
+        }
+        if (selectedCategory) {
+          params.append('category', selectedCategory);
+        }
 
-      const url = `${API_BASE_URL}/api/pos/products?${params}`;
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        };
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: headers
-      });
+        const url = `${API_BASE_URL}/api/pos/products?${params}`;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText || 'Unknown error' };
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: headers
+        });
+
+        if (!response.ok) {
+          // If request fails and we have cache, use cache
+          if (!navigator.onLine) {
+            const cachedResults = getCachedMedicineSearch(searchQuery);
+            if (cachedResults) {
+              setProducts(cachedResults);
+              setShowDropdown(true);
+              setLoading(false);
+              return;
+            }
+          }
+          
+          const errorText = await response.text();
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch {
+            errorData = { error: errorText || 'Unknown error' };
+          }
+          
+          setProducts([]);
+          setShowDropdown(true);
+          setLoading(false);
+          return;
+        }
+
+        const data = await response.json();
+        const productsArray = Array.isArray(data.products) ? data.products : [];
+        setProducts(productsArray);
+        
+        // Cache the search results
+        if (searchQuery.length > 0) {
+          cacheMedicineSearch(searchQuery, productsArray);
         }
         
-        // If unauthorized, show error but keep dropdown open
-        if (response.status === 401) {
-          setProducts([]);
-          setShowDropdown(true);
-        } else {
-          setProducts([]);
+        // Ensure dropdown is shown to display results
+        if (searchQuery.length >= 1) {
           setShowDropdown(true);
         }
-        setLoading(false);
-        return;
-      }
-
-      const data = await response.json();
-      const productsArray = Array.isArray(data.products) ? data.products : [];
-      setProducts(productsArray);
-      // Ensure dropdown is shown to display results
-      if (searchTerm.trim().length >= 1) {
+      } else {
+        // Offline - try cache
+        const cachedResults = getCachedMedicineSearch(searchQuery);
+        if (cachedResults) {
+          setProducts(cachedResults);
+        } else {
+          setProducts([]);
+        }
         setShowDropdown(true);
       }
     } catch (err) {
-      setProducts([]);
+      // On error, try cache
+      const cachedResults = getCachedMedicineSearch(searchTerm.trim());
+      if (cachedResults) {
+        setProducts(cachedResults);
+      } else {
+        setProducts([]);
+      }
       setShowDropdown(true);
     } finally {
       setLoading(false);

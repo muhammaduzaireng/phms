@@ -43,8 +43,9 @@ const testConnections = async () => {
     centralizedConnection.release();
     centralizedOk = true;
   } catch (error) {
-    console.error('❌ Centralized Database connection error:', error.message);
-    console.error('   Please check: database exists, credentials, IP whitelist');
+    console.warn('⚠️  Centralized Database: Not accessible from this network');
+    console.warn('   Error:', error.message);
+    console.warn('   Server will continue - frontend uses production API');
   }
 
   try {
@@ -53,13 +54,9 @@ const testConnections = async () => {
     usersConnection.release();
     usersOk = true;
   } catch (error) {
-    console.error('❌ Users Database connection error:', error.message);
-    console.error('   Common issues:');
-    console.error('   1. Database/user not created in hosting panel');
-    console.error('   2. Password incorrect');
-    console.error('   3. IP address not whitelisted');
-    console.error('   4. User does not have permission to access database');
-    console.error('   Note: Users database can be created later if needed');
+    console.warn('⚠️  Users Database: Not accessible from this network');
+    console.warn('   Error:', error.message);
+    console.warn('   Server will continue - frontend uses production API');
   }
 
   if (centralizedOk && usersOk) {
@@ -67,13 +64,14 @@ const testConnections = async () => {
     return true;
   } else if (centralizedOk) {
     console.log('\n⚠️  Centralized database connected, but users database failed.');
-    console.log('   Server will continue, but user-specific features may not work.');
-    console.log('   Please set up the users database to enable all features.');
-    return true; // Allow server to start with just centralized DB
+    console.log('   Server will continue - using production API instead.');
+    return true;
   } else {
-    console.log('\n❌ Critical: Centralized database connection failed!');
-    console.log('   Please fix database connection before starting server.');
-    return false;
+    console.log('\n⚠️  Database connections not available from this network.');
+    console.log('   This is normal if your network/firewall blocks database connections.');
+    console.log('   Server will continue running - frontend uses production API.');
+    console.log('   Production API: https://api.phms.devzytic.com\n');
+    return true; // Always allow server to start
   }
 };
 

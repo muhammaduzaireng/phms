@@ -6,6 +6,7 @@ import POSCart from '../components/POS/POSCart';
 import POSCheckout from '../components/POS/POSCheckout';
 import POSReceipt from '../components/POS/POSReceipt';
 import API_BASE_URL from '../config/api';
+import { addToSyncQueue } from '../services/dataSync';
 
 const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
   const [cart, setCart] = useState([]);
@@ -137,24 +138,70 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
         tax: tax
       };
 
-      const response = await fetch(`${API_BASE_URL}/api/pos/checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authToken ? `Bearer ${authToken}` : ''
-        },
-        body: JSON.stringify(checkoutData)
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Checkout failed' }));
-        throw new Error(errorData.error || 'Checkout failed');
+      // Check if online
+      if (navigator.onLine) {
+        // Try to process immediately
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/sales/checkout`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': authToken ? `Bearer ${authToken}` : ''
+            },
+            body: JSON.stringify(checkoutData)
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            setReceipt(data.transaction);
+            setShowCheckout(false);
+            clearCart();
+            return;
+          }
+        } catch (error) {
+          console.error('Checkout error (online):', error);
+          // Fall through to offline queue
+        }
       }
 
-      const data = await response.json();
-      setReceipt(data.transaction);
-      setShowCheckout(false);
-      clearCart();
+      // Offline or network error - queue for sync
+      const queueSuccess = await addToSyncQueue('sale', checkoutData, '/api/sales/checkout', 'POST');
+      
+      if (queueSuccess) {
+        // Generate local receipt for offline sale
+        const localTransaction = {
+          id: `local-${Date.now()}`,
+          transactionId: `TXN-${Date.now()}`,
+          date: new Date().toISOString(),
+          customer: {
+            name: customerInfo.name,
+            phone: customerInfo.phone
+          },
+          items: cart.map(item => ({
+            product_name: item.product_name,
+            quantity: item.quantity,
+            price: item.price_rs
+          })),
+          payment: {
+            method: paymentMethod,
+            subtotal: subtotal,
+            discount: discountAmount,
+            tax: taxAmount,
+            total: total
+          },
+          offline: true
+        };
+
+        setReceipt(localTransaction);
+        setShowCheckout(false);
+        clearCart();
+        
+        if (!navigator.onLine) {
+          alert('Sale saved offline. It will sync when internet is available.');
+        }
+      } else {
+        alert('Failed to save sale. Please try again.');
+      }
     } catch (error) {
       console.error('Checkout error:', error);
       alert('Checkout failed. Please try again.');

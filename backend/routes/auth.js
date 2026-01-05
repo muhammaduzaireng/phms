@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { usersPool } = require('../config/database');
 
@@ -54,25 +53,9 @@ router.post('/login', async (req, res) => {
 
     const user = users[0];
 
-    // Check password
-    if (!user.password_hash) {
-      // If no password hash exists, allow login with default password 'password123' (for first-time setup)
-      if (password === 'password123') {
-        // Hash and save password for next time
-        const hashedPassword = await bcrypt.hash(password, 10);
-        await usersPool.query(
-          'UPDATE users SET password_hash = ? WHERE id = ?',
-          [hashedPassword, user.id]
-        );
-      } else {
-        return res.status(401).json({ error: 'Invalid credentials. Please contact admin for initial password.' });
-      }
-    } else {
-      // Verify password with bcrypt
-      const isValidPassword = await bcrypt.compare(password, user.password_hash);
-      if (!isValidPassword) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
+    // Check password (plain text comparison, no hashing)
+    if (user.password_hash !== password) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     // Check subscription status
@@ -121,15 +104,13 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Username already exists' });
     }
 
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
-
+    // Store password as plain text (no hashing)
     // Create user (admin_id will be null for self-registered, should be set by admin)
     const [result] = await usersPool.query(
       `INSERT INTO users 
       (username, password_hash, pharmacy_name, owner_name, email, phone, is_active)
       VALUES (?, ?, ?, ?, ?, ?, TRUE)`,
-      [username, passwordHash, pharmacyName, ownerName || null, email || null, phone || null]
+      [username, password, pharmacyName, ownerName || null, email || null, phone || null]
     );
 
     // Auto-login after registration
@@ -165,21 +146,15 @@ router.post('/change-password', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Current and new passwords are required' });
     }
 
-    // Verify current password
-    if (req.user.password_hash) {
-      const isValidPassword = await bcrypt.compare(currentPassword, req.user.password_hash);
-      if (!isValidPassword) {
-        return res.status(401).json({ error: 'Current password is incorrect' });
-      }
+    // Verify current password (plain text comparison)
+    if (req.user.password_hash && req.user.password_hash !== currentPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
-    // Hash new password
-    const passwordHash = await bcrypt.hash(newPassword, 10);
-
-    // Update password
+    // Store new password as plain text (no hashing)
     await usersPool.query(
       'UPDATE users SET password_hash = ? WHERE id = ?',
-      [passwordHash, userId]
+      [newPassword, userId]
     );
 
     res.json({ success: true, message: 'Password changed successfully' });
