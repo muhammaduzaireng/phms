@@ -7,7 +7,7 @@ const getApiUrl = () => {
   }
   
   // Production API URL
-  const PRODUCTION_API = 'https://api.phms.devzytic.com';
+  const PRODUCTION_API = 'http://phms.devzytic.com';
   
   // If in Electron and packaged, use production API
   if (typeof window !== 'undefined' && window.electronAPI && window.location.protocol === 'file:') {
