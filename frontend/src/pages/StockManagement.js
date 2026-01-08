@@ -13,7 +13,8 @@ const StockManagement = ({ onNavigate, user, token }) => {
     medicineRegNumber: '',
     customProductId: '',
     quantity: 0,
-    unitPrice: 0,
+    unitPrice: 0, // Selling price
+    purchasePrice: 0, // Purchase price
     minStockLevel: 0,
     maxStockLevel: 0,
     expiryDate: '',
@@ -103,7 +104,8 @@ const StockManagement = ({ onNavigate, user, token }) => {
       medicineRegNumber: item.medicine_reg_number || '',
       customProductId: item.custom_product_id || '',
       quantity: item.quantity || 0,
-      unitPrice: parseFloat(item.unit_price || 0),
+      unitPrice: parseFloat(item.unit_price || 0), // Selling price
+      purchasePrice: parseFloat(item.purchase_price || 0), // Purchase price
       minStockLevel: item.min_stock_level || 0,
       maxStockLevel: item.max_stock_level || 0,
       expiryDate: item.expiry_date ? item.expiry_date.split('T')[0] : '',
@@ -122,7 +124,8 @@ const StockManagement = ({ onNavigate, user, token }) => {
       medicineRegNumber: '',
       customProductId: '',
       quantity: 0,
-      unitPrice: 0,
+      unitPrice: 0, // Selling price
+      purchasePrice: 0, // Purchase price
       minStockLevel: 0,
       maxStockLevel: 0,
       expiryDate: '',
@@ -243,7 +246,9 @@ const StockManagement = ({ onNavigate, user, token }) => {
               <tr>
                 <th>Product Name</th>
                 <th>Quantity</th>
-                <th>Unit Price</th>
+                <th>Purchase Price</th>
+                <th>Sell Price</th>
+                <th>Profit/Unit</th>
                 <th>Total Value</th>
                 <th>Min Level</th>
                 <th>Max Level</th>
@@ -252,29 +257,38 @@ const StockManagement = ({ onNavigate, user, token }) => {
               </tr>
             </thead>
             <tbody>
-              {filteredStock.map((item) => (
-                <tr key={item.id} className={item.quantity <= item.min_stock_level ? 'low-stock' : ''}>
-                  <td>
-                    <strong>{item.medicine_name || item.custom_product_name}</strong>
-                    {item.batch_number && <small> (Batch: {item.batch_number})</small>}
-                  </td>
-                  <td>
-                    <span className={item.quantity <= item.min_stock_level ? 'quantity-low' : ''}>
-                      {item.quantity}
-                    </span>
-                  </td>
-                  <td>{formatPrice(item.unit_price)}</td>
-                  <td>{formatPrice((item.unit_price || 0) * (item.quantity || 0))}</td>
-                  <td>{item.min_stock_level || 0}</td>
-                  <td>{item.max_stock_level || 0}</td>
-                  <td>{item.location || '-'}</td>
-                  <td>
-                    <button className="btn-edit" onClick={() => handleEdit(item)}>
-                      ✏️ Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {filteredStock.map((item) => {
+                const purchasePrice = parseFloat(item.purchase_price || 0);
+                const sellPrice = parseFloat(item.unit_price || 0);
+                const profitPerUnit = sellPrice - purchasePrice;
+                return (
+                  <tr key={item.id} className={item.quantity <= item.min_stock_level ? 'low-stock' : ''}>
+                    <td>
+                      <strong>{item.medicine_name || item.custom_product_name}</strong>
+                      {item.batch_number && <small> (Batch: {item.batch_number})</small>}
+                    </td>
+                    <td>
+                      <span className={item.quantity <= item.min_stock_level ? 'quantity-low' : ''}>
+                        {item.quantity}
+                      </span>
+                    </td>
+                    <td>{formatPrice(purchasePrice)}</td>
+                    <td>{formatPrice(sellPrice)}</td>
+                    <td className={profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                      {formatPrice(profitPerUnit)}
+                    </td>
+                    <td>{formatPrice(sellPrice * (item.quantity || 0))}</td>
+                    <td>{item.min_stock_level || 0}</td>
+                    <td>{item.max_stock_level || 0}</td>
+                    <td>{item.location || '-'}</td>
+                    <td>
+                      <button className="btn-edit" onClick={() => handleEdit(item)}>
+                        ✏️ Edit
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -409,7 +423,23 @@ const StockManagement = ({ onNavigate, user, token }) => {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Unit Price (PKR) *</label>
+                  <label>Purchase Price (PKR) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.purchasePrice}
+                    onChange={(e) => setFormData({ ...formData, purchasePrice: parseFloat(e.target.value) || 0 })}
+                    min="0"
+                    required
+                    placeholder="Price you paid to buy"
+                  />
+                  <small style={{ color: '#666', fontSize: '12px' }}>Price you paid to purchase this item</small>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Sell Price / Unit Price (PKR) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -417,7 +447,23 @@ const StockManagement = ({ onNavigate, user, token }) => {
                     onChange={(e) => setFormData({ ...formData, unitPrice: parseFloat(e.target.value) || 0 })}
                     min="0"
                     required
+                    placeholder="Price you sell to customer"
                   />
+                  <small style={{ color: '#666', fontSize: '12px' }}>Price you sell this item to customers</small>
+                </div>
+                <div className="form-group">
+                  <label>Expected Profit per Unit</label>
+                  <input
+                    type="text"
+                    value={formatPrice((formData.unitPrice || 0) - (formData.purchasePrice || 0))}
+                    readOnly
+                    style={{ 
+                      backgroundColor: '#f5f5f5', 
+                      color: (formData.unitPrice - formData.purchasePrice) >= 0 ? '#137333' : '#c5221f',
+                      fontWeight: 'bold'
+                    }}
+                  />
+                  <small style={{ color: '#666', fontSize: '12px' }}>Calculated automatically (Sell Price - Purchase Price)</small>
                 </div>
               </div>
 

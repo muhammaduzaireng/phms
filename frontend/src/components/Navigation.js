@@ -7,7 +7,7 @@ const Navigation = ({ currentPage, onNavigate }) => {
     { id: 'pos', label: '💰 Point of Sale', icon: '💰' },
     { id: 'returns', label: '↩️ Returns', icon: '↩️' },
     { id: 'sales', label: '📊 Sales History', icon: '📊' },
-    { id: 'profit', label: '💰 Profit Tracking', icon: '💰' },
+    // { id: 'profit', label: '💰 Profit Tracking', icon: '💰' },
     { id: 'stock', label: '📦 Stock Management', icon: '📦' },
     { id: 'purchase-orders', label: '📋 Purchase Orders', icon: '📋' },
     { id: 'profile', label: '⚙️ Profile', icon: '⚙️' },

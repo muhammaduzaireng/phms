@@ -100,6 +100,16 @@
   background: #ffeaa7;
 }
 
+.profit-positive {
+  color: #137333;
+  font-weight: 600;
+}
+
+.profit-negative {
+  color: #c5221f;
+  font-weight: 600;
+}
+
 .quantity-low {
   color: #dc3545;
   font-weight: 700;

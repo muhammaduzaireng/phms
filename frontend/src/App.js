@@ -19,7 +19,8 @@ import AdminDashboard from './pages/Admin/AdminDashboard';
 import PharmacyLogin from './pages/PharmacyLogin';
 import ElectronPOS from './pages/ElectronPOS';
 import API_BASE_URL from './config/api';
-import { initDatabase, downloadAllData, checkAndSync, getSyncQueueStatus } from './services/dataSync';
+// Data sync disabled for web version - only used in Electron
+// import { initDatabase, downloadAllData, checkAndSync, getSyncQueueStatus } from './services/dataSync';
 
 function App() {
   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
@@ -59,22 +60,13 @@ function App() {
     setIsElectron(electronMode);
   }, []);
 
-  // Initialize database and data sync
-  useEffect(() => {
-    const initDataSync = async () => {
-      try {
-        await initDatabase();
-        console.log('[App] Database initialized');
-      } catch (error) {
-        console.error('[App] Database initialization error:', error);
-      }
-    };
-
-    initDataSync();
-  }, []);
+  // Data sync initialization disabled for web version
+  // (Only used in Electron for offline functionality)
 
   // Check for admin or pharmacy session on mount and download data
   useEffect(() => {
+    let isMounted = true;
+    
     const savedAdmin = localStorage.getItem('adminUser');
     const savedAdminToken = localStorage.getItem('adminToken');
     const savedPharmacyUser = localStorage.getItem('pharmacyUser');
@@ -89,43 +81,38 @@ function App() {
       setPharmacyUser(JSON.parse(savedPharmacyUser));
       setPharmacyToken(savedPharmacyToken);
       
-      // Download all data when pharmacy user is logged in
-      if (navigator.onLine) {
-        downloadAllData(savedPharmacyToken).then(result => {
-          if (result.success) {
-            console.log('[App] Data downloaded successfully');
-          }
-        });
-      }
+      // Data download disabled for web version
+      // (Only used in Electron for offline functionality)
     }
+    
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // Listen for online/offline events and sync
+  // Online/offline event listeners (data sync disabled for web)
   useEffect(() => {
-    const handleOnline = async () => {
-      console.log('[App] Connection restored');
-      const token = pharmacyToken || localStorage.getItem('pharmacyToken');
-      if (token) {
-        // Sync queue first, then download fresh data
-        await checkAndSync(token);
+    const handleOnline = () => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[App] Connection restored');
       }
     };
 
     const handleOffline = () => {
-      console.log('[App] Connection lost - working offline');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[App] Connection lost - working offline');
+      }
     };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Listen for service worker messages
+    // Service worker message listener (minimal, no data sync)
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', (event) => {
-        if (event.data && event.data.type === 'SYNC_QUEUE') {
-          const token = pharmacyToken || localStorage.getItem('pharmacyToken');
-          if (token) {
-            checkAndSync(token);
-          }
+        // Service worker messages handled but no data sync for web
+        if (process.env.NODE_ENV === 'development' && event.data) {
+          console.log('[App] Service worker message:', event.data.type);
         }
       });
     }

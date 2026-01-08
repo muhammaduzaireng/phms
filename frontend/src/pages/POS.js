@@ -6,7 +6,8 @@ import POSCart from '../components/POS/POSCart';
 import POSCheckout from '../components/POS/POSCheckout';
 import POSReceipt from '../components/POS/POSReceipt';
 import API_BASE_URL from '../config/api';
-import { addToSyncQueue } from '../services/dataSync';
+// Data sync only used in Electron - disabled for web
+// import { addToSyncQueue } from '../services/dataSync';
 
 const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
   const [cart, setCart] = useState([]);
@@ -254,44 +255,17 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
           }
         } catch (error) {
           console.error('Checkout error (online):', error);
-          // Show error to user
-          // Network/Server error - try to save offline automatically
+          // Show error to user - data sync removed from web version
+          // Just show error, don't attempt offline sync
           console.error('Checkout error:', error.message);
-          try {
-            // Try to queue for sync automatically (no user prompt)
-            await addToSyncQueue('sale', checkoutData, '/api/sales/checkout', 'POST');
-            
-            // Show local receipt (will sync when online)
-            const localTransaction = createTransaction(null, null, true);
-            localTransaction.offline = true;
-            localTransaction.saved = false;
-            setReceipt(localTransaction);
-            setShowCheckout(false);
-            // No alert - user doesn't want alerts
-          } catch (queueError) {
-            console.error('Failed to queue for sync:', queueError);
-            // Don't show receipt if we can't save it at all
-            return;
-          }
-        }
-      } else {
-        // Offline mode - queue for sync
-        try {
-          await addToSyncQueue('sale', checkoutData, '/api/sales/checkout', 'POST');
-          
-          // Show local receipt (will sync when online)
-          const localTransaction = createTransaction(null, null, true);
-          localTransaction.offline = true;
-          localTransaction.saved = false;
-          setReceipt(localTransaction);
-          setShowCheckout(false);
-          // No alert - user doesn't want alerts
-        } catch (queueError) {
-          console.error('Failed to queue for sync:', queueError);
-          // Failed to save - silently fail
-          // Don't show receipt if we can't save it at all
+          // Don't show receipt on error - user needs to retry when online
           return;
         }
+      } else {
+        // Offline mode - data sync removed from web version
+        // User must be online to complete checkout
+        console.error('Cannot complete checkout offline - data sync disabled for web');
+        return;
       }
     } catch (error) {
       console.error('Checkout error:', error);

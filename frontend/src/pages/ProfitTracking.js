@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './ProfitTracking.css';
 import API_BASE_URL from '../config/api';
 
@@ -10,26 +10,23 @@ const ProfitTracking = ({ token, user, onBack, onLogout }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Check if user is logged in
+  // Check if user is logged in - only run once on mount
   useEffect(() => {
     const authToken = token || localStorage.getItem('pharmacyToken');
     if (!authToken) {
       setError('Please login to view profit reports');
-      if (onLogout) {
+      // Use a timeout to avoid immediate redirect, allowing user to see message
+      const logoutFn = onLogout;
+      if (logoutFn) {
         setTimeout(() => {
-          onLogout();
+          logoutFn();
         }, 2000);
       }
     }
-  }, [token, onLogout]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]); // Only check token, onLogout might change on every render causing loops
 
-  useEffect(() => {
-    if (token || localStorage.getItem('pharmacyToken')) {
-      fetchProfitData();
-    }
-  }, [period, startDate, endDate, token]);
-
-  const fetchProfitData = async () => {
+  const fetchProfitData = useCallback(async () => {
     const authToken = token || localStorage.getItem('pharmacyToken');
     if (!authToken) {
       setError('Please login to view profit reports');
@@ -86,9 +83,11 @@ const ProfitTracking = ({ token, user, onBack, onLogout }) => {
       if (!response.ok) {
         if (response.status === 401) {
           setError('Session expired. Please login again.');
-          if (onLogout) {
+          // Use a ref or direct call to avoid dependency issues
+          const logoutFn = onLogout;
+          if (logoutFn) {
             setTimeout(() => {
-              onLogout();
+              logoutFn();
             }, 2000);
           }
           return;
@@ -139,7 +138,19 @@ const ProfitTracking = ({ token, user, onBack, onLogout }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [period, startDate, endDate, token]); // Removed onLogout from dependencies to prevent infinite loops
+
+  useEffect(() => {
+    const authToken = token || localStorage.getItem('pharmacyToken');
+    if (authToken) {
+      // Only fetch if not custom period, or if custom period has both dates
+      if (period !== 'custom' || (startDate && endDate)) {
+        fetchProfitData();
+      }
+    }
+    // fetchProfitData is memoized with useCallback, and its dependencies are already in this array
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, startDate, endDate, token]);
 
   const formatPrice = (price) => {
     return new Intl.NumberFormat('en-PK', {

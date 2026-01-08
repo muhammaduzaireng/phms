@@ -13,17 +13,18 @@ const STATIC_ASSETS = [
 
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
-  console.log('[Service Worker] Installing...');
+  // Reduced logging - only log in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Service Worker] Installing...');
+  }
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker] Caching static assets');
       return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.log('[Service Worker] Cache addAll error:', err);
-        // Cache individual files even if some fail
+        // Cache individual files even if some fail - silently
         return Promise.allSettled(
           STATIC_ASSETS.map((url) =>
-            cache.add(url).catch((err) => {
-              console.log(`[Service Worker] Failed to cache ${url}:`, err);
+            cache.add(url).catch(() => {
+              // Silently fail
             })
           )
         );
@@ -35,7 +36,6 @@ self.addEventListener('install', (event) => {
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-  console.log('[Service Worker] Activating...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -44,7 +44,6 @@ self.addEventListener('activate', (event) => {
             return cacheName !== CACHE_NAME && cacheName !== RUNTIME_CACHE;
           })
           .map((cacheName) => {
-            console.log('[Service Worker] Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           })
       );
@@ -58,7 +57,7 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
+  // Skip non-GET requests - let them pass through
   if (request.method !== 'GET') {
     return;
   }
@@ -68,9 +67,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Handle API requests with network-first strategy
+  // Handle API requests - don't intercept, let browser handle them normally
+  // Only fallback to cache if network actually fails
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirstStrategy(request));
+    // Don't intercept API requests at all - let them pass through
+    // The app will handle offline scenarios using its own logic
     return;
   }
 
@@ -79,27 +80,28 @@ self.addEventListener('fetch', (event) => {
 });
 
 // Network-first strategy for API calls (try network, fallback to cache)
+// NOTE: This function is kept for reference but API requests are no longer intercepted
 async function networkFirstStrategy(request) {
   try {
-    const networkResponse = await fetch(request);
+    // Use a timeout to avoid hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
     
-    // Cache successful responses
-    if (networkResponse.ok) {
-      const cache = await caches.open(RUNTIME_CACHE);
-      cache.put(request, networkResponse.clone());
-    }
+    const networkResponse = await fetch(request, {
+      signal: controller.signal,
+      cache: 'no-store' // Don't cache by default
+    });
     
+    clearTimeout(timeoutId);
     return networkResponse;
   } catch (error) {
-    console.log('[Service Worker] Network failed, trying cache:', request.url);
-    
     // Try cache as fallback
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
       return cachedResponse;
     }
     
-    // Return offline response for API calls
+    // Return offline response
     return new Response(
       JSON.stringify({
         error: 'Offline',
@@ -134,11 +136,10 @@ async function cacheFirstStrategy(request) {
     
     return networkResponse;
   } catch (error) {
-    console.log('[Service Worker] Fetch failed:', error);
-    
     // Return offline page for navigation requests
     if (request.mode === 'navigate') {
-      return caches.match('/');
+      const cached = await caches.match('/');
+      if (cached) return cached;
     }
     
     throw error;

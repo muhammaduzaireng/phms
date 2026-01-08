@@ -5,102 +5,206 @@
 import API_BASE_URL from '../config/api';
 import { storeEssentialData, getEssentialData, cacheSearchResult, getCachedSearch, cleanupCache } from './smartCache';
 
-// Initialize storage
+// Initialize storage - with persistent singleton pattern to prevent multiple initializations
+const INIT_FLAG_KEY = 'pharmacy_data_sync_initialized_v2';
+
+// Use a module-level promise to prevent concurrent initializations
+let initPromise = null;
+
 export const initDatabase = async () => {
+  // If already initialized in this session, return immediately
   try {
-    // Cleanup old cache entries
-    cleanupCache();
-    console.log('[Data Sync] Storage initialized with selective caching');
-    return true;
-  } catch (error) {
-    console.error('[Data Sync] Initialization error:', error);
-    return false;
+    if (sessionStorage.getItem(INIT_FLAG_KEY) === 'true') {
+      return true;
+    }
+  } catch (e) {
+    // sessionStorage might not be available (private mode, etc.)
   }
+
+  // If initialization is in progress, wait for it
+  if (initPromise) {
+    return initPromise;
+  }
+
+  // Start initialization and store the promise
+  initPromise = (async () => {
+    try {
+      // Set flag immediately to prevent race conditions
+      try {
+        sessionStorage.setItem(INIT_FLAG_KEY, 'true');
+      } catch (e) {
+        // sessionStorage might not be available
+      }
+
+      // Cleanup old cache entries
+      cleanupCache();
+      
+      // Only log once per session, and only in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Data Sync] Storage initialized with selective caching');
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('[Data Sync] Initialization error:', error);
+      // Clear flag on error so it can retry
+      try {
+        sessionStorage.removeItem(INIT_FLAG_KEY);
+      } catch (e) {
+        // ignore
+      }
+      initPromise = null; // Reset promise on error
+      return false;
+    }
+  })();
+
+  return initPromise;
 };
 
 // Download essential data only (not all medicines)
+// Prevent concurrent downloads with persistent flags
+const DOWNLOAD_FLAG_KEY = 'pharmacy_download_in_progress_v2';
+const LAST_DOWNLOAD_KEY = 'pharmacy_last_download_time_v2';
+const MIN_DOWNLOAD_INTERVAL = 30000; // 30 seconds minimum between downloads
+
+// Use a module-level promise to prevent concurrent downloads
+let downloadPromise = null;
+
 export const downloadAllData = async (token = null) => {
   if (!navigator.onLine) {
-    console.log('[Data Sync] Offline - cannot download data');
     return { success: false, error: 'Offline' };
   }
 
-  try {
-    const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
-
-    console.log('[Data Sync] Starting essential data download (selective caching)...');
-
-    // Download stock (if authenticated) - ESSENTIAL
-    let stock = [];
-    if (token) {
-      try {
-        const stockResponse = await fetch(`${API_BASE_URL}/api/stock`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (stockResponse.ok) {
-          stock = await stockResponse.json();
-          storeEssentialData('stock', stock);
-        }
-      } catch (err) {
-        console.error('[Data Sync] Error downloading stock:', err);
-      }
-    }
-
-    // Download custom products (if authenticated) - ESSENTIAL
-    let customProducts = [];
-    if (token) {
-      try {
-        const customResponse = await fetch(`${API_BASE_URL}/api/custom-products`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (customResponse.ok) {
-          customProducts = await customResponse.json();
-          storeEssentialData('custom_products', customProducts.products || customProducts);
-        }
-      } catch (err) {
-        console.error('[Data Sync] Error downloading custom products:', err);
-      }
-    }
-
-    // Download purchase orders (if authenticated) - ESSENTIAL (recent only)
-    let purchaseOrders = [];
-    if (token) {
-      try {
-        const poResponse = await fetch(`${API_BASE_URL}/api/purchase-orders?limit=100`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (poResponse.ok) {
-          const poData = await poResponse.json();
-          purchaseOrders = poData.orders || [];
-          storeEssentialData('purchase_orders', purchaseOrders);
-        }
-      } catch (err) {
-        console.error('[Data Sync] Error downloading purchase orders:', err);
-      }
-    }
-
-    // Store last sync timestamp
-    storeEssentialData('last_sync', {
-      timestamp: Date.now(),
-      dataCount: {
-        stock: stock.length,
-        customProducts: customProducts.length,
-        purchaseOrders: purchaseOrders.length
-      }
-    });
-
-    console.log('[Data Sync] Essential data download complete:', {
-      stock: stock.length,
-      customProducts: customProducts.length,
-      purchaseOrders: purchaseOrders.length,
-      note: 'Medicines are fetched on-demand (not cached)'
-    });
-
-    return { success: true };
-  } catch (error) {
-    console.error('[Data Sync] Error downloading data:', error);
-    return { success: false, error: error.message };
+  // FIRST: Check promise (module-level, fastest check, prevents race conditions)
+  if (downloadPromise) {
+    // Wait for existing download if in progress
+    return await downloadPromise;
   }
+
+  // SECOND: Check sessionStorage and throttling
+  try {
+    // Throttle downloads - don't download if last download was recent
+    const lastDownloadTime = parseInt(sessionStorage.getItem(LAST_DOWNLOAD_KEY) || '0', 10);
+    const now = Date.now();
+    if (now - lastDownloadTime < MIN_DOWNLOAD_INTERVAL) {
+      return { success: true, skipped: true };
+    }
+
+    // Check if a download is marked as in progress (from previous session/module reload)
+    if (sessionStorage.getItem(DOWNLOAD_FLAG_KEY) === 'true') {
+      // Clear stale flag (download might have completed but flag wasn't cleared)
+      const staleTime = parseInt(sessionStorage.getItem(`${DOWNLOAD_FLAG_KEY}_time`) || '0', 10);
+      if (now - staleTime > 60000) { // If flag is older than 1 minute, it's stale
+        sessionStorage.removeItem(DOWNLOAD_FLAG_KEY);
+        sessionStorage.removeItem(`${DOWNLOAD_FLAG_KEY}_time`);
+      } else {
+        return { success: false, error: 'Download in progress', skipped: true };
+      }
+    }
+
+    // Set download flag immediately (before creating promise) to prevent race conditions
+    sessionStorage.setItem(DOWNLOAD_FLAG_KEY, 'true');
+    sessionStorage.setItem(`${DOWNLOAD_FLAG_KEY}_time`, now.toString());
+    sessionStorage.setItem(LAST_DOWNLOAD_KEY, now.toString());
+  } catch (e) {
+    // sessionStorage might not be available (private mode, etc.)
+    // Continue anyway - promise will prevent concurrent downloads
+  }
+
+  // Create and store the download promise
+  downloadPromise = (async () => {
+    try {
+      const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+      // Only log once per download attempt (throttled already)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Data Sync] Starting essential data download (selective caching)...');
+      }
+
+      // Download stock (if authenticated) - ESSENTIAL
+      let stock = [];
+      if (token) {
+        try {
+          const stockResponse = await fetch(`${API_BASE_URL}/api/stock`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (stockResponse.ok) {
+            stock = await stockResponse.json();
+            storeEssentialData('stock', stock);
+          }
+        } catch (err) {
+          console.error('[Data Sync] Error downloading stock:', err);
+        }
+      }
+
+      // Download custom products (if authenticated) - ESSENTIAL
+      let customProducts = [];
+      if (token) {
+        try {
+          const customResponse = await fetch(`${API_BASE_URL}/api/custom-products`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (customResponse.ok) {
+            customProducts = await customResponse.json();
+            storeEssentialData('custom_products', customProducts.products || customProducts);
+          }
+        } catch (err) {
+          console.error('[Data Sync] Error downloading custom products:', err);
+        }
+      }
+
+      // Download purchase orders (if authenticated) - ESSENTIAL (recent only)
+      let purchaseOrders = [];
+      if (token) {
+        try {
+          const poResponse = await fetch(`${API_BASE_URL}/api/purchase-orders?limit=100`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (poResponse.ok) {
+            const poData = await poResponse.json();
+            purchaseOrders = poData.orders || [];
+            storeEssentialData('purchase_orders', purchaseOrders);
+          }
+        } catch (err) {
+          console.error('[Data Sync] Error downloading purchase orders:', err);
+        }
+      }
+
+      // Store last sync timestamp
+      storeEssentialData('last_sync', {
+        timestamp: Date.now(),
+        dataCount: {
+          stock: stock.length,
+          customProducts: customProducts.length,
+          purchaseOrders: purchaseOrders.length
+        }
+      });
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Data Sync] Essential data download complete:', {
+          stock: stock.length,
+          customProducts: customProducts.length,
+          purchaseOrders: purchaseOrders.length,
+          note: 'Medicines are fetched on-demand (not cached)'
+        });
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('[Data Sync] Error downloading data:', error);
+      return { success: false, error: error.message };
+    } finally {
+      // Clear download flag and promise
+      try {
+        sessionStorage.removeItem(DOWNLOAD_FLAG_KEY);
+      } catch (e) {
+        // ignore
+      }
+      downloadPromise = null;
+    }
+  })();
+
+  return downloadPromise;
 };
 
 // Get data from local storage (essential data only)

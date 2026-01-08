@@ -113,13 +113,17 @@ const ReturnsHistory = ({ token, user, onBack }) => {
 
                 <div className="return-items-summary">
                   <strong>Items Returned:</strong>
-                  <ul>
-                    {returnRecord.items.map((item, index) => (
-                      <li key={index}>
-                        {item.product_name} - Qty: {item.quantity} @ {formatPrice(item.price)} = {formatPrice(item.total)}
-                      </li>
-                    ))}
-                  </ul>
+                  {returnRecord.items && returnRecord.items.length > 0 ? (
+                    <ul>
+                      {returnRecord.items.map((item, index) => (
+                        <li key={index}>
+                          {item.product_name || item.item_name} - Qty: {item.quantity} @ {formatPrice(item.price)} = {formatPrice(item.total)}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No items found for this return</p>
+                  )}
                 </div>
 
                 <div className="return-total">
@@ -135,26 +139,30 @@ const ReturnsHistory = ({ token, user, onBack }) => {
 
                 {selectedReturn === returnRecord.id && (
                   <div className="return-details">
-                    <table className="details-table">
-                      <thead>
-                        <tr>
-                          <th>Product Name</th>
-                          <th>Quantity</th>
-                          <th>Price</th>
-                          <th>Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {returnRecord.items.map((item, index) => (
-                          <tr key={index}>
-                            <td>{item.product_name}</td>
-                            <td>{item.quantity}</td>
-                            <td>{formatPrice(item.price)}</td>
-                            <td>{formatPrice(item.total)}</td>
+                    {returnRecord.items && returnRecord.items.length > 0 ? (
+                      <table className="details-table">
+                        <thead>
+                          <tr>
+                            <th>Product Name</th>
+                            <th>Quantity</th>
+                            <th>Price</th>
+                            <th>Total</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {returnRecord.items.map((item, index) => (
+                            <tr key={index}>
+                              <td>{item.product_name || item.item_name}</td>
+                              <td>{item.quantity}</td>
+                              <td>{formatPrice(item.price)}</td>
+                              <td>{formatPrice(item.total)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p>No items found for this return</p>
+                    )}
                   </div>
                 )}
               </div>

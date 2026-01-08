@@ -198,15 +198,15 @@ const Returns = ({ token, user, onBack }) => {
       {transaction && (
         <div className="transaction-details">
           <div className="transaction-header">
-            <h3>Transaction Details</h3>
-            <div className="transaction-info">
+           
+           
               <p><strong>Transaction ID:</strong> {transaction.transaction_id}</p>
               <p><strong>Date:</strong> {new Date(transaction.date).toLocaleString()}</p>
               <p><strong>Customer:</strong> {transaction.customer.name}</p>
               {transaction.customer.phone && (
                 <p><strong>Phone:</strong> {transaction.customer.phone}</p>
               )}
-            </div>
+            
           </div>
 
           <div className="return-items-section">
