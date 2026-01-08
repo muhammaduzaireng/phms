@@ -84,6 +84,8 @@ const posRouter = require('./routes/pos');
 const salesRouter = require('./routes/sales');
 app.use('/api/pos', posRouter);
 app.use('/api/pos', salesRouter);
+// Also register sales routes at /api/sales for compatibility
+app.use('/api/sales', salesRouter);
 
 app.use('/api/stock', require('./routes/stock'));
 app.use('/api/custom-products', require('./routes/customProducts'));
