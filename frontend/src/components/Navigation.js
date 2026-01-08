@@ -5,7 +5,9 @@ const Navigation = ({ currentPage, onNavigate }) => {
   const navItems = [
     { id: 'browse', label: '📚 Browse Medicines', icon: '📚' },
     { id: 'pos', label: '💰 Point of Sale', icon: '💰' },
+    { id: 'returns', label: '↩️ Returns', icon: '↩️' },
     { id: 'sales', label: '📊 Sales History', icon: '📊' },
+    { id: 'profit', label: '💰 Profit Tracking', icon: '💰' },
     { id: 'stock', label: '📦 Stock Management', icon: '📦' },
     { id: 'purchase-orders', label: '📋 Purchase Orders', icon: '📋' },
     { id: 'profile', label: '⚙️ Profile', icon: '⚙️' },
@@ -33,7 +35,7 @@ const Navigation = ({ currentPage, onNavigate }) => {
               onClick={() => onNavigate(item.id)}
             >
               <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label">{item.label.replace(/[📚💰📊📦⚙️🔐👨‍💼]/g, '').trim()}</span>
+              <span className="nav-label">{item.label.replace(/[📚💰📊📦⚙️🔐👨‍💼↩️]/g, '').trim()}</span>
             </button>
           ))}
         </div>

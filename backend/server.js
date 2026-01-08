@@ -93,6 +93,7 @@ app.use('/api/purchase-orders', require('./routes/purchaseOrders'));
 app.use('/api/profile', require('./routes/profile'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/auth', require('./routes/auth').router);
+app.use('/api/returns', require('./routes/returns'));
 
 // Health check with more info
 app.get('/api/health', (req, res) => {

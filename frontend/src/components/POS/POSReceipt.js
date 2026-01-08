@@ -26,17 +26,9 @@ const POSReceipt = ({ transaction, onClose, pharmacyName, isElectron = false }) 
       // Electron thermal printer print
       try {
         const result = await window.electronAPI.printThermalReceipt(transaction, pharmacyName);
-        if (result) {
-          if (result.saved && result.filePath) {
-            // Show notification about saved file location
-            setTimeout(() => {
-              const fileName = result.filePath.split(/[/\\]/).pop();
-              alert(`Receipt saved to:\n${result.filePath}\n\n${result.message || 'Receipt saved successfully. If printer is connected, it will also be printed.'}`);
-            }, 500);
-          }
-        }
+        // Receipt printed (no alert - user doesn't want alerts)
       } catch (error) {
-        alert('Error processing receipt. Please check console for details.');
+        // Silently handle print errors
       }
     } else {
       // Browser print

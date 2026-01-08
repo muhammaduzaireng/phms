@@ -43,30 +43,44 @@ router.get('/products', verifyToken, async (req, res) => {
 
     const [customProducts] = await usersPool.query(customQuery, customParams);
 
-    // Get stock prices for this user (to override default prices)
+    // Get stock information (prices and quantities) for this user
     const [stockItems] = await usersPool.query(
-      'SELECT medicine_reg_number, custom_product_id, unit_price FROM stock WHERE user_id = ?',
+      'SELECT medicine_reg_number, custom_product_id, unit_price, quantity, min_stock_level FROM stock WHERE user_id = ?',
       [userId]
     );
 
-    // Create a map of stock prices
+    // Create maps for stock prices and quantities
     const stockPriceMap = {};
+    const stockQuantityMap = {};
+    const stockMinLevelMap = {};
     stockItems.forEach(item => {
       if (item.medicine_reg_number) {
-        stockPriceMap[`MED-${item.medicine_reg_number}`] = parseFloat(item.unit_price);
+        const key = `MED-${item.medicine_reg_number}`;
+        stockPriceMap[key] = parseFloat(item.unit_price);
+        stockQuantityMap[key] = parseInt(item.quantity) || 0;
+        stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
       }
       if (item.custom_product_id) {
-        stockPriceMap[`CUST-${item.custom_product_id}`] = parseFloat(item.unit_price);
+        const key = `CUST-${item.custom_product_id}`;
+        stockPriceMap[key] = parseFloat(item.unit_price);
+        stockQuantityMap[key] = parseInt(item.quantity) || 0;
+        stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
       }
     });
 
-    // Transform data to consistent format with stock prices
+    // Transform data to consistent format with stock prices and quantities
     const allProducts = [
       ...medicines.map(m => {
         const stockKey = `MED-${m.reg_number}`;
         const price = stockPriceMap[stockKey] !== undefined 
           ? stockPriceMap[stockKey] 
           : parseFloat(m.price_rs);
+        const stockQuantity = stockQuantityMap[stockKey] !== undefined 
+          ? stockQuantityMap[stockKey] 
+          : 0;
+        const minStockLevel = stockMinLevelMap[stockKey] !== undefined 
+          ? stockMinLevelMap[stockKey] 
+          : 0;
         
         return {
           ...m,
@@ -76,7 +90,11 @@ router.get('/products', verifyToken, async (req, res) => {
           generic_name: m.generic_name,
           manufacturer: m.manufacturer,
           pack_size: m.pack_size,
-          isCustom: false
+          isCustom: false,
+          stock_quantity: stockQuantity,
+          min_stock_level: minStockLevel,
+          in_stock: stockQuantity > 0,
+          low_stock: stockQuantity > 0 && stockQuantity <= minStockLevel && minStockLevel > 0
         };
       }),
       ...customProducts.map(p => {
@@ -84,6 +102,12 @@ router.get('/products', verifyToken, async (req, res) => {
         const price = stockPriceMap[stockKey] !== undefined 
           ? stockPriceMap[stockKey] 
           : parseFloat(p.price);
+        const stockQuantity = stockQuantityMap[stockKey] !== undefined 
+          ? stockQuantityMap[stockKey] 
+          : 0;
+        const minStockLevel = stockMinLevelMap[stockKey] !== undefined 
+          ? stockMinLevelMap[stockKey] 
+          : 0;
         
         return {
           ...p,
@@ -94,7 +118,11 @@ router.get('/products', verifyToken, async (req, res) => {
           manufacturer: p.category,
           pack_size: p.unit,
           isCustom: true,
-          custom_product_id: p.id
+          custom_product_id: p.id,
+          stock_quantity: stockQuantity,
+          min_stock_level: minStockLevel,
+          in_stock: stockQuantity > 0,
+          low_stock: stockQuantity > 0 && stockQuantity <= minStockLevel && minStockLevel > 0
         };
       })
     ];

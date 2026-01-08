@@ -41,7 +41,6 @@ const POSProductSearch = ({ onAddToCart, token }) => {
       if (!navigator.onLine || searchQuery.length > 0) {
         const cachedResults = getCachedMedicineSearch(searchQuery);
         if (cachedResults && cachedResults.length > 0) {
-          console.log('[POS Search] Using cached results');
           setProducts(cachedResults);
           if (searchQuery.length >= 1) {
             setShowDropdown(true);
@@ -434,6 +433,26 @@ const POSProductSearch = ({ onAddToCart, token }) => {
                             {formatPrice(product.price_rs || product.price || 0)}
                           </span>
                         </div>
+                        {/* Stock Status */}
+                        <div className="dropdown-stock-status">
+                          {product.stock_quantity !== undefined && product.stock_quantity !== null ? (
+                            <>
+                              {product.stock_quantity <= 0 ? (
+                                <span className="stock-badge stock-out">Out of Stock</span>
+                              ) : product.low_stock ? (
+                                <span className="stock-badge stock-low">
+                                  Low Stock: {product.stock_quantity} {product.pack_size || 'units'}
+                                </span>
+                              ) : (
+                                <span className="stock-badge stock-available">
+                                  In Stock: {product.stock_quantity} {product.pack_size || 'units'}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="stock-badge stock-not-added">Not in Stock</span>
+                          )}
+                        </div>
                       </div>
                       <button className="dropdown-add-btn">
                         Add <span className="keyboard-hint">↵ Enter</span>
@@ -494,10 +513,31 @@ const POSProductSearch = ({ onAddToCart, token }) => {
                 <div className="product-meta">
                   <span className="product-pack">{product.pack_size || 'N/A'}</span>
                 </div>
+                {/* Stock Status */}
+                <div className="product-stock-status">
+                  {product.stock_quantity !== undefined && product.stock_quantity !== null ? (
+                    <>
+                      {product.stock_quantity <= 0 ? (
+                        <span className="stock-badge stock-out">Out of Stock</span>
+                      ) : product.low_stock ? (
+                        <span className="stock-badge stock-low">
+                          Low Stock: {product.stock_quantity} {product.pack_size || 'units'}
+                        </span>
+                      ) : (
+                        <span className="stock-badge stock-available">
+                          In Stock: {product.stock_quantity} {product.pack_size || 'units'}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="stock-badge stock-not-added">Not in Stock</span>
+                  )}
+                </div>
               </div>
               <button
                 className="add-to-cart-btn"
                 onClick={() => handleAddToCart(product)}
+                disabled={product.stock_quantity !== undefined && product.stock_quantity !== null && product.stock_quantity <= 0}
               >
                 Add to Cart
               </button>

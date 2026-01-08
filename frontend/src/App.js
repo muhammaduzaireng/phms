@@ -12,6 +12,8 @@ import SalesHistory from './pages/SalesHistory';
 import StockManagement from './pages/StockManagement';
 import PurchaseOrders from './pages/PurchaseOrders';
 import Profile from './pages/Profile';
+import Returns from './pages/Returns';
+import ProfitTracking from './pages/ProfitTracking';
 import AdminLogin from './pages/Admin/AdminLogin';
 import AdminDashboard from './pages/Admin/AdminDashboard';
 import PharmacyLogin from './pages/PharmacyLogin';
@@ -305,6 +307,20 @@ function App() {
       return <PharmacyLogin onLogin={handlePharmacyLogin} />;
     }
     return <Profile onNavigate={handleNavigate} user={pharmacyUser} token={pharmacyToken} />;
+  }
+
+  if (currentPage === 'returns') {
+    if (!pharmacyUser) {
+      return <PharmacyLogin onLogin={handlePharmacyLogin} />;
+    }
+    return <Returns token={pharmacyToken} user={pharmacyUser} onBack={() => handleNavigate('pos')} />;
+  }
+
+  if (currentPage === 'profit') {
+    if (!pharmacyUser) {
+      return <PharmacyLogin onLogin={handlePharmacyLogin} />;
+    }
+    return <ProfitTracking token={pharmacyToken} user={pharmacyUser} onBack={() => handleNavigate('pos')} onLogout={handlePharmacyLogout} />;
   }
 
   if (currentPage === 'admin') {

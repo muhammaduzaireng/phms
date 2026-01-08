@@ -40,18 +40,24 @@ router.post('/checkout', verifyToken, async (req, res) => {
 
     // Insert items and update stock
     for (const item of items) {
+      // Determine if this is a medicine or custom product
+      // Custom products have reg_number like "CUST-123" or explicit customProductId
+      const isCustomProduct = item.customProductId || (item.reg_number && String(item.reg_number).startsWith('CUST-'));
+      const customProductId = item.customProductId || (item.reg_number && String(item.reg_number).startsWith('CUST-') ? parseInt(String(item.reg_number).replace('CUST-', '')) : null);
+      const medicineRegNumber = item.reg_number && !String(item.reg_number).startsWith('CUST-') ? item.reg_number : null;
+      
       // Get stock information to calculate profit and check low stock
       let stockInfo = null;
-      if (item.reg_number) {
+      if (medicineRegNumber) {
         const [stock] = await usersPool.query(
-          'SELECT quantity, min_stock_level, purchase_price, unit_price FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
-          [userId, item.reg_number]
+          'SELECT id, quantity, min_stock_level, purchase_price, unit_price FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
+          [userId, medicineRegNumber]
         );
         stockInfo = stock[0] || null;
-      } else if (item.customProductId) {
+      } else if (customProductId) {
         const [stock] = await usersPool.query(
-          'SELECT quantity, min_stock_level, purchase_price, unit_price FROM stock WHERE user_id = ? AND custom_product_id = ?',
-          [userId, item.customProductId]
+          'SELECT id, quantity, min_stock_level, purchase_price, unit_price FROM stock WHERE user_id = ? AND custom_product_id = ?',
+          [userId, customProductId]
         );
         stockInfo = stock[0] || null;
       }
@@ -70,8 +76,8 @@ router.post('/checkout', verifyToken, async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           saleId,
-          item.reg_number || null,
-          item.customProductId || null,
+          medicineRegNumber,
+          customProductId,
           item.product_name || item.name,
           item.quantity,
           item.price,
@@ -81,47 +87,51 @@ router.post('/checkout', verifyToken, async (req, res) => {
         ]
       );
 
-      // Update stock (decrease quantity)
-      if (item.reg_number) {
+      // Update stock (decrease quantity) - always update if stock record exists
+      let stockUpdated = false;
+      
+      if (stockInfo && stockInfo.id) {
+        // Stock record exists - update quantity
+        const currentQuantity = stockInfo.quantity || 0;
+        const newQuantity = Math.max(0, currentQuantity - item.quantity); // Prevent negative
+        
         await usersPool.query(
-          'UPDATE stock SET quantity = quantity - ? WHERE user_id = ? AND medicine_reg_number = ?',
-          [item.quantity, userId, item.reg_number]
+          'UPDATE stock SET quantity = ? WHERE id = ?',
+          [newQuantity, stockInfo.id]
         );
+        stockUpdated = true;
         
         // Check if stock is now low
-        const [updatedStock] = await usersPool.query(
-          'SELECT quantity, min_stock_level FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
-          [userId, item.reg_number]
-        );
-        
-        if (updatedStock[0] && updatedStock[0].quantity <= updatedStock[0].min_stock_level) {
+        if (newQuantity <= (stockInfo.min_stock_level || 0)) {
           lowStockAlerts.push({
             product_name: item.product_name || item.name,
-            reg_number: item.reg_number,
-            current_quantity: updatedStock[0].quantity,
-            min_stock_level: updatedStock[0].min_stock_level
+            reg_number: medicineRegNumber,
+            custom_product_id: customProductId,
+            current_quantity: newQuantity,
+            min_stock_level: stockInfo.min_stock_level || 0
           });
         }
-      } else if (item.customProductId) {
-        await usersPool.query(
-          'UPDATE stock SET quantity = quantity - ? WHERE user_id = ? AND custom_product_id = ?',
-          [item.quantity, userId, item.customProductId]
-        );
-        
-        // Check if stock is now low
-        const [updatedStock] = await usersPool.query(
-          'SELECT quantity, min_stock_level FROM stock WHERE user_id = ? AND custom_product_id = ?',
-          [userId, item.customProductId]
-        );
-        
-        if (updatedStock[0] && updatedStock[0].quantity <= updatedStock[0].min_stock_level) {
-          lowStockAlerts.push({
-            product_name: item.product_name || item.name,
-            custom_product_id: item.customProductId,
-            current_quantity: updatedStock[0].quantity,
-            min_stock_level: updatedStock[0].min_stock_level
-          });
+      } else {
+        // Stock record doesn't exist - create it with negative quantity to track overselling
+        if (medicineRegNumber) {
+          await usersPool.query(
+            `INSERT INTO stock (user_id, medicine_reg_number, quantity, min_stock_level, unit_price)
+             VALUES (?, ?, ?, 0, ?)`,
+            [userId, medicineRegNumber, -item.quantity, item.price]
+          );
+          stockUpdated = true;
+        } else if (customProductId) {
+          await usersPool.query(
+            `INSERT INTO stock (user_id, custom_product_id, quantity, min_stock_level, unit_price)
+             VALUES (?, ?, ?, 0, ?)`,
+            [userId, customProductId, -item.quantity, item.price]
+          );
+          stockUpdated = true;
         }
+      }
+      
+      if (!stockUpdated) {
+        console.warn(`[Stock Update] Could not update stock for item: ${item.product_name || item.name} - missing identifiers`);
       }
     }
 

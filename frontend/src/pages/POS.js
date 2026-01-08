@@ -50,7 +50,7 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
       // F3 - Clear cart
       if (e.key === 'F3') {
         e.preventDefault();
-        if (cart.length > 0 && window.confirm('Clear cart?')) {
+        if (cart.length > 0) {
           clearCart();
         }
       }
@@ -126,7 +126,8 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
       
       const checkoutData = {
         items: cart.map(item => ({
-          reg_number: item.reg_number,
+          reg_number: item.reg_number && !item.reg_number.startsWith('CUST-') ? item.reg_number : null,
+          customProductId: item.custom_product_id || (item.reg_number && item.reg_number.startsWith('CUST-') ? parseInt(item.reg_number.replace('CUST-', '')) : null),
           product_name: item.product_name,
           quantity: item.quantity,
           price: item.price_rs
@@ -231,14 +232,8 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
               transaction.id = transaction.transaction_id || transaction.transactionId || `TXN-${Date.now()}`;
             }
             
-            // Show low stock alerts if any (but don't block the receipt)
-            if (data.low_stock_alerts && data.low_stock_alerts.length > 0) {
-              const alertMessages = data.low_stock_alerts.map(alert => 
-                `⚠️ Low Stock Alert!\n${alert.product_name}\nCurrent: ${alert.current_quantity}, Minimum: ${alert.min_stock_level}`
-              ).join('\n\n');
-              // Show alert but continue to show receipt
-              setTimeout(() => alert(alertMessages), 100);
-            }
+            // Low stock alerts are tracked but not shown as alerts (user doesn't want alerts)
+            // They can check stock management page for low stock items
             
             // Sale successfully saved - show receipt
             setReceipt(transaction);
@@ -260,28 +255,22 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
         } catch (error) {
           console.error('Checkout error (online):', error);
           // Show error to user
-          const errorMessage = error.message || 'Failed to save sale. Please check your connection and try again.';
-          if (window.confirm(`${errorMessage}\n\nWould you like to save this sale offline and sync later?`)) {
-            // User wants to save offline
-            try {
-              // Try to queue for sync
-              await addToSyncQueue('sale', checkoutData, '/api/sales/checkout', 'POST');
-              
-              // Show local receipt (will sync when online)
-              const localTransaction = createTransaction(null, null, true);
-              localTransaction.offline = true;
-              localTransaction.saved = false;
-              setReceipt(localTransaction);
-              setShowCheckout(false);
-              alert('Sale saved offline. It will sync when internet is available.');
-            } catch (queueError) {
-              console.error('Failed to queue for sync:', queueError);
-              alert('Failed to save sale. Please check your connection and try again.');
-              // Don't show receipt if we can't save it at all
-              return;
-            }
-          } else {
-            // User cancelled - don't proceed with sale
+          // Network/Server error - try to save offline automatically
+          console.error('Checkout error:', error.message);
+          try {
+            // Try to queue for sync automatically (no user prompt)
+            await addToSyncQueue('sale', checkoutData, '/api/sales/checkout', 'POST');
+            
+            // Show local receipt (will sync when online)
+            const localTransaction = createTransaction(null, null, true);
+            localTransaction.offline = true;
+            localTransaction.saved = false;
+            setReceipt(localTransaction);
+            setShowCheckout(false);
+            // No alert - user doesn't want alerts
+          } catch (queueError) {
+            console.error('Failed to queue for sync:', queueError);
+            // Don't show receipt if we can't save it at all
             return;
           }
         }
@@ -296,10 +285,10 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
           localTransaction.saved = false;
           setReceipt(localTransaction);
           setShowCheckout(false);
-          alert('Sale saved offline. It will sync when internet is available.');
+          // No alert - user doesn't want alerts
         } catch (queueError) {
           console.error('Failed to queue for sync:', queueError);
-          alert('Failed to save sale. Please check your connection and try again.');
+          // Failed to save - silently fail
           // Don't show receipt if we can't save it at all
           return;
         }
@@ -339,10 +328,10 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
         const localTransaction = createTransaction(null, null, true);
         setReceipt(localTransaction);
         setShowCheckout(false);
-        alert('Sale completed (local copy). Some data may not be synced.');
+        // No alert - user doesn't want alerts
       } catch (fallbackError) {
         console.error('Fallback receipt generation failed:', fallbackError);
-        alert('Checkout failed. Please try again.');
+        // Checkout failed - silently fail, don't show receipt
       }
     }
   };
@@ -378,6 +367,15 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
       <div className="pos-header">
         <h1>💊 Point of Sale (POS)</h1>
         <div className="pos-header-actions">
+          {!isElectron && onNavigate && (
+            <button 
+              className="btn-secondary" 
+              onClick={() => onNavigate('returns')}
+              title="Process Customer Returns"
+            >
+              ↩️ Returns
+            </button>
+          )}
           <button className="btn-secondary" onClick={clearCart} disabled={cart.length === 0}>
             Clear Cart
           </button>

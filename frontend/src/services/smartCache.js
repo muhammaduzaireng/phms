@@ -2,8 +2,8 @@
 // Only caches essential data, not the full dataset
 
 const CACHE_CONFIG = {
-  MAX_CACHED_SEARCHES: 500, // Maximum cached medicine searches
-  CACHE_EXPIRY_DAYS: 7, // Cache expiry in days
+  MAX_CACHED_SEARCHES: 50, // Maximum cached medicine searches (reduced to prevent quota errors)
+  CACHE_EXPIRY_DAYS: 1, // Cache expiry in days (reduced to 1 day)
   ESSENTIAL_DATA: ['stock', 'custom_products', 'purchase_orders'], // Always cache these
 };
 
@@ -20,8 +20,11 @@ export const cacheSearchResult = (searchTerm, results) => {
   try {
     const cache = getSearchCache();
     
+    // Limit results to prevent quota errors (only cache first 10 results per search)
+    const limitedResults = Array.isArray(results) ? results.slice(0, 10) : results;
+    
     // Remove if already exists (to update position)
-    const existingIndex = cache.findIndex(item => item.searchTerm === searchTerm);
+    const existingIndex = cache.findIndex(item => item.searchTerm === searchTerm.toLowerCase());
     if (existingIndex >= 0) {
       cache.splice(existingIndex, 1);
     }
@@ -29,19 +32,54 @@ export const cacheSearchResult = (searchTerm, results) => {
     // Add to front (most recent)
     cache.unshift({
       searchTerm: searchTerm.toLowerCase(),
-      results: results,
+      results: limitedResults,
       timestamp: Date.now()
     });
     
-    // Keep only last N items (LRU)
+    // Keep only last N items (LRU) - reduce to prevent quota
     if (cache.length > CACHE_CONFIG.MAX_CACHED_SEARCHES) {
       cache.splice(CACHE_CONFIG.MAX_CACHED_SEARCHES);
     }
     
-    localStorage.setItem(STORAGE_KEYS.SEARCH_CACHE, JSON.stringify(cache));
+    // Clean up expired entries before saving
+    const now = Date.now();
+    const expiryTime = CACHE_CONFIG.CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+    const validCache = cache.filter(item => (now - item.timestamp) < expiryTime);
+    
+    localStorage.setItem(STORAGE_KEYS.SEARCH_CACHE, JSON.stringify(validCache));
     return true;
   } catch (error) {
-    console.error('[Smart Cache] Error caching search:', error);
+    // If quota exceeded, try to clear old entries and retry
+    if (error.name === 'QuotaExceededError') {
+      try {
+        // Clear old cache entries
+        const cache = getSearchCache();
+        const now = Date.now();
+        const expiryTime = CACHE_CONFIG.CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+        const validCache = cache.filter(item => (now - item.timestamp) < expiryTime);
+        
+        // If still too large, keep only most recent 20
+        const trimmedCache = validCache.length > 20 ? validCache.slice(0, 20) : validCache;
+        
+        localStorage.setItem(STORAGE_KEYS.SEARCH_CACHE, JSON.stringify(trimmedCache));
+        
+        // Retry with limited results
+        if (trimmedCache.length < CACHE_CONFIG.MAX_CACHED_SEARCHES) {
+          const limitedResults = Array.isArray(results) ? results.slice(0, 5) : results;
+          trimmedCache.unshift({
+            searchTerm: searchTerm.toLowerCase(),
+            results: limitedResults,
+            timestamp: Date.now()
+          });
+          localStorage.setItem(STORAGE_KEYS.SEARCH_CACHE, JSON.stringify(trimmedCache.slice(0, CACHE_CONFIG.MAX_CACHED_SEARCHES)));
+        }
+        return true;
+      } catch (retryError) {
+        // If still fails, just don't cache - it's okay
+        return false;
+      }
+    }
+    // Silently fail - don't show errors to user
     return false;
   }
 };
@@ -58,11 +96,15 @@ export const getCachedSearch = (searchTerm) => {
       // Check if expired
       const ageInDays = (Date.now() - cached.timestamp) / (1000 * 60 * 60 * 24);
       if (ageInDays < CACHE_CONFIG.CACHE_EXPIRY_DAYS) {
-        // Move to front (mark as recently used)
+        // Move to front (mark as recently used) - but don't save if quota is full
         const index = cache.indexOf(cached);
         cache.splice(index, 1);
         cache.unshift(cached);
-        localStorage.setItem(STORAGE_KEYS.SEARCH_CACHE, JSON.stringify(cache));
+        try {
+          localStorage.setItem(STORAGE_KEYS.SEARCH_CACHE, JSON.stringify(cache));
+        } catch (e) {
+          // Quota full - just return results without saving
+        }
         return cached.results;
       }
     }
@@ -138,14 +180,25 @@ export const cleanupCache = () => {
     
     const filtered = cache.filter(item => (now - item.timestamp) < expiryTime);
     
-    if (filtered.length !== cache.length) {
-      localStorage.setItem(STORAGE_KEYS.SEARCH_CACHE, JSON.stringify(filtered));
-      console.log(`[Smart Cache] Cleaned up ${cache.length - filtered.length} expired entries`);
+    // Also limit to MAX_CACHED_SEARCHES if still too large
+    const trimmed = filtered.length > CACHE_CONFIG.MAX_CACHED_SEARCHES 
+      ? filtered.slice(0, CACHE_CONFIG.MAX_CACHED_SEARCHES)
+      : filtered;
+    
+    if (trimmed.length !== cache.length) {
+      localStorage.setItem(STORAGE_KEYS.SEARCH_CACHE, JSON.stringify(trimmed));
     }
     
     return true;
   } catch (error) {
-    console.error('[Smart Cache] Error cleaning cache:', error);
+    // If quota error, clear cache entirely and start fresh
+    if (error.name === 'QuotaExceededError') {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.SEARCH_CACHE);
+      } catch (removeError) {
+        // Ignore
+      }
+    }
     return false;
   }
 };

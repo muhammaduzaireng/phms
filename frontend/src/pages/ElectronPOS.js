@@ -9,6 +9,9 @@ import AddCustomProduct from '../components/POS/AddCustomProduct';
 import StockManagement from './StockManagement';
 import API_BASE_URL from '../config/api';
 import SalesHistory from './SalesHistory';
+import Returns from './Returns';
+import ReturnsHistory from './ReturnsHistory';
+import ProfitTracking from './ProfitTracking';
 
 // Check if running in Electron
 const isElectron = typeof window !== 'undefined' && window.electronAPI;
@@ -105,7 +108,13 @@ const ElectronPOS = () => {
             className={currentView === 'returns' ? 'active' : ''}
             onClick={() => setCurrentView('returns')}
           >
-            ↩️ Returns
+            ↩️ Process Return
+          </button>
+          <button 
+            className={currentView === 'returns-history' ? 'active' : ''}
+            onClick={() => setCurrentView('returns-history')}
+          >
+            📋 Returns History
           </button>
           <button 
             className={currentView === 'purchase-order-list' ? 'active' : ''}
@@ -124,6 +133,12 @@ const ElectronPOS = () => {
             onClick={() => setCurrentView('sales-reports')}
           >
             📊 Sales Reports
+          </button>
+          <button 
+            className={currentView === 'profit' ? 'active' : ''}
+            onClick={() => setCurrentView('profit')}
+          >
+            💰 Profit Tracking
           </button>
           <button onClick={handleLogout} className="logout-btn">
             🚪 Logout
@@ -163,7 +178,15 @@ const ElectronPOS = () => {
         )}
         
         {currentView === 'returns' && (
-          <ReturnsView token={pharmacyToken} user={pharmacyUser} onBack={() => setCurrentView('pos')} />
+          <div className="view-container" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Returns token={pharmacyToken} user={pharmacyUser} onBack={() => setCurrentView('pos')} />
+          </div>
+        )}
+
+        {currentView === 'returns-history' && (
+          <div className="view-container" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <ReturnsHistory token={pharmacyToken} user={pharmacyUser} onBack={() => setCurrentView('pos')} />
+          </div>
         )}
         
         {currentView === 'purchase-order-list' && (
@@ -187,6 +210,17 @@ const ElectronPOS = () => {
         {currentView === 'sales-reports' && (
           <div className="view-container" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <SalesHistory user={pharmacyUser} token={pharmacyToken} onNavigate={() => setCurrentView('pos')} />
+          </div>
+        )}
+
+        {currentView === 'profit' && (
+          <div className="view-container" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <ProfitTracking 
+              token={pharmacyToken} 
+              user={pharmacyUser} 
+              onBack={() => setCurrentView('pos')}
+              onLogout={handleLogout}
+            />
           </div>
         )}
 
@@ -222,16 +256,6 @@ const ElectronPOS = () => {
   );
 };
 
-// Returns View
-const ReturnsView = ({ token, user, onBack }) => {
-  return (
-    <div className="view-container">
-      <button onClick={onBack} className="back-btn">← Back to POS</button>
-      <h2>Product Returns</h2>
-      <p>Returns functionality coming soon...</p>
-    </div>
-  );
-};
 
 // Sales Reports View
 const SalesReportsView = ({ token, user, onBack }) => {
