@@ -63,9 +63,12 @@ router.post('/checkout', verifyToken, async (req, res) => {
       }
 
       // Calculate profit (sell_price - purchase_price) * quantity
-      const sellPrice = item.price;
-      const purchasePrice = stockInfo?.purchase_price || 0;
+      const sellPrice = parseFloat(item.price) || 0;
+      // Get purchase_price from stock, or use 0 if not available (meaning no profit can be calculated)
+      const purchasePrice = stockInfo?.purchase_price ? parseFloat(stockInfo.purchase_price) : 0;
+      // Profit per unit = selling price - purchase price
       const profitPerUnit = sellPrice - purchasePrice;
+      // Total profit for this item = profit per unit * quantity
       const itemProfit = profitPerUnit * item.quantity;
       totalProfit += itemProfit;
 
@@ -114,18 +117,18 @@ router.post('/checkout', verifyToken, async (req, res) => {
       } else {
         // Stock record doesn't exist - create it with negative quantity to track overselling
         if (medicineRegNumber) {
-          await usersPool.query(
-            `INSERT INTO stock (user_id, medicine_reg_number, quantity, min_stock_level, unit_price)
-             VALUES (?, ?, ?, 0, ?)`,
-            [userId, medicineRegNumber, -item.quantity, item.price]
-          );
+        await usersPool.query(
+          `INSERT INTO stock (user_id, medicine_reg_number, quantity, min_stock_level, unit_price, purchase_price)
+           VALUES (?, ?, ?, 0, ?, 0)`,
+          [userId, medicineRegNumber, -item.quantity, item.price, 0]
+        );
           stockUpdated = true;
         } else if (customProductId) {
-          await usersPool.query(
-            `INSERT INTO stock (user_id, custom_product_id, quantity, min_stock_level, unit_price)
-             VALUES (?, ?, ?, 0, ?)`,
-            [userId, customProductId, -item.quantity, item.price]
-          );
+        await usersPool.query(
+          `INSERT INTO stock (user_id, custom_product_id, quantity, min_stock_level, unit_price, purchase_price)
+           VALUES (?, ?, ?, 0, ?, 0)`,
+          [userId, customProductId, -item.quantity, item.price, 0]
+        );
           stockUpdated = true;
         }
       }

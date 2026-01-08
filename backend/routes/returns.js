@@ -89,7 +89,6 @@ router.post('/process', verifyToken, async (req, res) => {
 
     const sale = sales[0];
     const saleId = sale.id;
-    const originalSaleDate = new Date(sale.created_at).toISOString().split('T')[0]; // Original sale date
 
     // Validate return items
     const [saleItems] = await usersPool.query(
@@ -138,18 +137,6 @@ router.post('/process', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'No valid items to return' });
     }
 
-    // Calculate total profit to deduct (from returned items) before transaction
-    let totalProfitToDeduct = 0;
-    for (const returnItem of returnItemsToProcess) {
-      const saleItem = returnItem.saleItem;
-      // Calculate profit per unit that was made on this item (sell_price - purchase_price)
-      const sellPrice = parseFloat(saleItem.price);
-      const purchasePrice = parseFloat(saleItem.purchase_price || 0);
-      const profitPerUnit = sellPrice - purchasePrice;
-      const returnProfit = profitPerUnit * returnItem.returnQuantity;
-      totalProfitToDeduct += returnProfit;
-    }
-
     // Generate return number
     const returnNumber = `RET-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
@@ -158,7 +145,6 @@ router.post('/process', verifyToken, async (req, res) => {
     await connection.beginTransaction();
 
     try {
-
       // Create return record
       const [returnResult] = await connection.query(
         `INSERT INTO sale_returns 
@@ -169,8 +155,32 @@ router.post('/process', verifyToken, async (req, res) => {
 
       const returnId = returnResult.insertId;
 
+      // Track total profit to reverse from returns
+      let totalProfitToReverse = 0;
+
       // Create return items and update stock
       for (const { saleItem, returnQuantity, itemTotal } of returnItemsToProcess) {
+        // Calculate profit that needs to be reversed for this item
+        // profit_per_unit = (sell_price - purchase_price) or use stored profit
+        const sellPrice = parseFloat(saleItem.price || saleItem.unit_price || 0);
+        const purchasePrice = parseFloat(saleItem.purchase_price || 0);
+        const originalQuantity = parseFloat(saleItem.quantity || 1);
+        const storedProfit = parseFloat(saleItem.profit || 0);
+        
+        // Calculate profit per unit: either from stored profit or calculate from prices
+        let profitPerUnit = 0;
+        if (storedProfit > 0 && originalQuantity > 0) {
+          // Use stored profit per unit
+          profitPerUnit = storedProfit / originalQuantity;
+        } else {
+          // Calculate from sell price and purchase price
+          profitPerUnit = sellPrice - purchasePrice;
+        }
+        
+        // Profit to reverse = profit per unit * returned quantity
+        const profitToReverse = profitPerUnit * returnQuantity;
+        totalProfitToReverse += profitToReverse;
+
         // Insert return item
         await connection.query(
           `INSERT INTO sale_return_items 
@@ -185,118 +195,99 @@ router.post('/process', verifyToken, async (req, res) => {
           [returnQuantity, saleItem.id]
         );
 
-        // Update stock (increase quantity) - use original purchase_price if available
-        const purchasePrice = parseFloat(saleItem.purchase_price || 0);
-        const unitPrice = parseFloat(saleItem.price);
-
+        // Update stock (increase quantity)
         if (saleItem.medicine_reg_number) {
           // Check if stock exists
           const [existingStock] = await connection.query(
-            'SELECT id, quantity, purchase_price FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
+            'SELECT id, quantity FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
             [userId, saleItem.medicine_reg_number]
           );
 
           if (existingStock.length > 0) {
-            // Update existing stock - preserve purchase_price if it exists
-            const existingPurchasePrice = existingStock[0].purchase_price || purchasePrice;
+            // Update existing stock
             await connection.query(
               'UPDATE stock SET quantity = quantity + ? WHERE id = ?',
               [returnQuantity, existingStock[0].id]
             );
-            // Update purchase_price if we have a valid one and stock doesn't have it
-            if (purchasePrice > 0 && !existingStock[0].purchase_price) {
-              await connection.query(
-                'UPDATE stock SET purchase_price = ? WHERE id = ?',
-                [purchasePrice, existingStock[0].id]
-              );
-            }
           } else {
-            // Create new stock record with purchase_price
+            // Create new stock record
             await connection.query(
-              `INSERT INTO stock (user_id, medicine_reg_number, quantity, unit_price, purchase_price)
-               VALUES (?, ?, ?, ?, ?)`,
-              [userId, saleItem.medicine_reg_number, returnQuantity, unitPrice, purchasePrice || 0]
+              `INSERT INTO stock (user_id, medicine_reg_number, quantity, unit_price)
+               VALUES (?, ?, ?, ?)`,
+              [userId, saleItem.medicine_reg_number, returnQuantity, saleItem.price]
             );
           }
         } else if (saleItem.custom_product_id) {
           // Check if stock exists
           const [existingStock] = await connection.query(
-            'SELECT id, quantity, purchase_price FROM stock WHERE user_id = ? AND custom_product_id = ?',
+            'SELECT id, quantity FROM stock WHERE user_id = ? AND custom_product_id = ?',
             [userId, saleItem.custom_product_id]
           );
 
           if (existingStock.length > 0) {
-            // Update existing stock - preserve purchase_price if it exists
-            const existingPurchasePrice = existingStock[0].purchase_price || purchasePrice;
+            // Update existing stock
             await connection.query(
               'UPDATE stock SET quantity = quantity + ? WHERE id = ?',
               [returnQuantity, existingStock[0].id]
             );
-            // Update purchase_price if we have a valid one and stock doesn't have it
-            if (purchasePrice > 0 && !existingStock[0].purchase_price) {
-              await connection.query(
-                'UPDATE stock SET purchase_price = ? WHERE id = ?',
-                [purchasePrice, existingStock[0].id]
-              );
-            }
           } else {
-            // Create new stock record with purchase_price
+            // Create new stock record
             await connection.query(
-              `INSERT INTO stock (user_id, custom_product_id, quantity, unit_price, purchase_price)
-               VALUES (?, ?, ?, ?, ?)`,
-              [userId, saleItem.custom_product_id, returnQuantity, unitPrice, purchasePrice || 0]
+              `INSERT INTO stock (user_id, custom_product_id, quantity, unit_price)
+               VALUES (?, ?, ?, ?)`,
+              [userId, saleItem.custom_product_id, returnQuantity, saleItem.price]
             );
           }
         }
       }
 
-      // Reduce profit from the original sale
-      await connection.query(
-        'UPDATE sales SET profit = profit - ? WHERE id = ?',
-        [totalProfitToDeduct, saleId]
-      );
-
-      // Reduce profit from daily_profits for the original sale date (when items were originally sold)
-      // This ensures the daily profit reflects actual profit after returns
-      try {
-        const [dailyProfit] = await connection.query(
-          'SELECT * FROM daily_profits WHERE user_id = ? AND date = ?',
-          [userId, originalSaleDate]
+      // Reverse profit from the original sale
+      // Subtract the returned profit from the sale's total profit
+      if (totalProfitToReverse > 0) {
+        const currentSaleProfit = parseFloat(sale.profit || 0);
+        const newSaleProfit = Math.max(0, currentSaleProfit - totalProfitToReverse);
+        
+        await connection.query(
+          'UPDATE sales SET profit = ? WHERE id = ?',
+          [newSaleProfit, saleId]
         );
+      }
 
-        if (dailyProfit.length > 0) {
-          // Reduce profit from the original sale date's daily profit
-          // This reflects that we're reversing the profit we made on that date
-          await connection.query(
-            'UPDATE daily_profits SET total_profit = GREATEST(0, total_profit - ?) WHERE id = ?',
-            [totalProfitToDeduct, dailyProfit[0].id]
+      // Reverse profit from daily_profits for the date of the original sale
+      // Get the original sale date
+      const saleDate = sale.created_at ? new Date(sale.created_at).toISOString().split('T')[0] : null;
+      
+      if (saleDate && totalProfitToReverse > 0) {
+        try {
+          // Find daily profit record for the sale date
+          const [dailyProfit] = await connection.query(
+            'SELECT * FROM daily_profits WHERE user_id = ? AND date = ?',
+            [userId, saleDate]
           );
-        } else {
-          // If no daily profit record exists for the original sale date, 
-          // try to insert with negative value (handles edge cases)
-          try {
+
+          if (dailyProfit.length > 0) {
+            // Subtract the returned profit from daily profit
+            const currentDailyProfit = parseFloat(dailyProfit[0].total_profit || 0);
+            const newDailyProfit = currentDailyProfit - totalProfitToReverse;
+            
+            await connection.query(
+              'UPDATE daily_profits SET total_profit = ? WHERE id = ?',
+              [newDailyProfit, dailyProfit[0].id]
+            );
+          } else {
+            // If daily profit record doesn't exist for that date, create one with negative profit
+            // This handles cases where returns happen on a different day
             await connection.query(
               `INSERT INTO daily_profits (user_id, date, total_profit, total_sales)
                VALUES (?, ?, ?, 0)`,
-              [userId, originalSaleDate, -Math.abs(totalProfitToDeduct)]
+              [userId, saleDate, -totalProfitToReverse]
             );
-          } catch (insertError) {
-            // If insert fails due to duplicate, update instead
-            if (insertError.code === 'ER_DUP_ENTRY') {
-              await connection.query(
-                'UPDATE daily_profits SET total_profit = GREATEST(0, total_profit - ?) WHERE user_id = ? AND date = ?',
-                [totalProfitToDeduct, userId, originalSaleDate]
-              );
-            }
           }
+        } catch (dailyProfitError) {
+          // Log error but don't fail the return transaction
+          console.error('Error updating daily profit for return:', dailyProfitError);
         }
-      } catch (dailyProfitError) {
-        // If daily_profits table doesn't exist, just log and continue
-        console.warn('Daily profit reduction failed:', dailyProfitError.message);
       }
-
-      // Update sale total (subtract return amount) - optional, you might want to track this differently
-      // For now, we'll just record the return separately
 
       await connection.commit();
 
@@ -394,11 +385,16 @@ router.get('/list', verifyToken, async (req, res) => {
       );
 
       returnRecord.items = items.map(item => ({
-        ...item,
-        product_name: item.item_name,
-        quantity: item.quantity,
-        price: parseFloat(item.price),
-        total: parseFloat(item.total)
+        id: item.id,
+        sale_return_id: item.sale_return_id,
+        sale_item_id: item.sale_item_id,
+        product_name: item.item_name || 'Unknown Product',
+        item_name: item.item_name,
+        quantity: parseInt(item.quantity) || 0,
+        price: parseFloat(item.price) || 0,
+        total: parseFloat(item.total) || 0,
+        medicine_reg_number: item.medicine_reg_number,
+        custom_product_id: item.custom_product_id
       }));
     }
 
