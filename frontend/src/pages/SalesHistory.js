@@ -220,15 +220,20 @@ const SalesHistory = ({ onNavigate, user, token }) => {
     ${transaction.customer?.phone || transaction.customer_phone ? `<div><strong>Phone:</strong> ${transaction.customer?.phone || transaction.customer_phone}</div>` : ''}
   </div>
   <div class="items">
-    ${(transaction.items || []).map(item => `
+    ${(transaction.items || []).map(item => {
+      const itemName = item.product_name || item.item_name || item.name || 'Product';
+      const regNumber = item.reg_number || item.regNumber || '';
+      const qty = item.quantity || item.qty || 0;
+      const price = item.price || item.unit_price || 0;
+      const total = item.total || item.subtotal || (qty * price);
+      const displayName = regNumber ? `${itemName} (${regNumber})` : itemName;
+      return `
       <div class="item">
-        <div>
-          <div><strong>${item.product_name || item.item_name || item.name}</strong></div>
-          <div>${item.quantity || item.qty} x ${formatPrice(item.price || item.unit_price || 0)}</div>
-        </div>
-        <div>${formatPrice(item.total || item.subtotal || ((item.quantity || item.qty || 0) * (item.price || item.unit_price || 0)))}</div>
+        <div><strong>${displayName}</strong> - Qty: ${qty} x ${formatPrice(price)}</div>
+        <div>${formatPrice(total)}</div>
       </div>
-    `).join('')}
+    `;
+    }).join('')}
   </div>
   <div class="total">
     <div class="total-row">

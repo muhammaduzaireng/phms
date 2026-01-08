@@ -138,9 +138,36 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
         tax: tax
       };
 
-      // Check if online
+      // Helper function to create transaction object
+      const createTransaction = (id, txId, isOffline = false) => ({
+        id: id || `local-${Date.now()}`,
+        transactionId: txId || `TXN-${Date.now()}`,
+        date: new Date().toISOString(),
+        customer: {
+          name: customerInfo.name,
+          phone: customerInfo.phone
+        },
+        items: cart.map(item => ({
+          product_name: item.product_name,
+          reg_number: item.reg_number,
+          quantity: item.quantity,
+          price: item.price_rs,
+          total: (item.quantity * item.price_rs)
+        })),
+        payment: {
+          method: paymentMethod,
+          subtotal: subtotal,
+          discount: discountAmount,
+          discountPercent: discount > 0 && subtotal > 0 ? ((discountAmount / subtotal) * 100).toFixed(1) : 0,
+          tax: taxAmount,
+          taxPercent: tax > 0 && subtotal > 0 ? ((taxAmount / subtotal) * 100).toFixed(1) : 0,
+          total: total
+        },
+        offline: isOffline
+      });
+
+      // Check if online and try to process immediately
       if (navigator.onLine) {
-        // Try to process immediately
         try {
           const response = await fetch(`${API_BASE_URL}/api/sales/checkout`, {
             method: 'POST',
@@ -153,58 +180,170 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
           
           if (response.ok) {
             const data = await response.json();
-            setReceipt(data.transaction);
+            
+            // Verify that the sale was actually saved
+            if (!data.success) {
+              throw new Error(data.error || 'Sale was not saved successfully. Please try again.');
+            }
+            
+            if (!data.transaction) {
+              throw new Error('Transaction data not received from server. Sale may not have been saved.');
+            }
+            
+            // Ensure transaction has all required fields
+            const transaction = data.transaction;
+            
+            // Verify transaction has required fields
+            if (!transaction.id && !transaction.transaction_id && !transaction.transactionId) {
+              console.error('Transaction missing ID:', transaction);
+              throw new Error('Transaction ID missing. Sale may not have been saved correctly.');
+            }
+            
+            if (transaction && transaction.items) {
+              // Ensure items have required fields
+              transaction.items = transaction.items.map(item => ({
+                ...item,
+                product_name: item.product_name || item.item_name || item.name,
+                reg_number: item.reg_number || item.regNumber,
+                quantity: item.quantity || item.qty || 1,
+                price: item.price || item.unit_price || item.price_rs || 0,
+                total: item.total || item.subtotal || ((item.quantity || item.qty || 1) * (item.price || item.unit_price || item.price_rs || 0))
+              }));
+            }
+            
+            // Ensure payment structure exists
+            if (!transaction.payment) {
+              transaction.payment = {
+                method: paymentMethod,
+                subtotal: subtotal,
+                discount: discountAmount,
+                tax: taxAmount,
+                total: total
+              };
+            }
+            
+            // Mark transaction as saved (not offline)
+            transaction.offline = false;
+            transaction.saved = true;
+            
+            // Ensure transaction has an ID for tracking
+            if (!transaction.id) {
+              transaction.id = transaction.transaction_id || transaction.transactionId || `TXN-${Date.now()}`;
+            }
+            
+            // Show low stock alerts if any (but don't block the receipt)
+            if (data.low_stock_alerts && data.low_stock_alerts.length > 0) {
+              const alertMessages = data.low_stock_alerts.map(alert => 
+                `⚠️ Low Stock Alert!\n${alert.product_name}\nCurrent: ${alert.current_quantity}, Minimum: ${alert.min_stock_level}`
+              ).join('\n\n');
+              // Show alert but continue to show receipt
+              setTimeout(() => alert(alertMessages), 100);
+            }
+            
+            // Sale successfully saved - show receipt
+            setReceipt(transaction);
             setShowCheckout(false);
-            clearCart();
+            // Don't clear cart immediately - let user print receipt first
+            // Cart will be cleared when receipt is closed
             return;
+          } else {
+            // Server error - get error details
+            let errorMessage = `Server error: ${response.status}`;
+            try {
+              const errorData = await response.json();
+              errorMessage = errorData.error || errorData.message || errorMessage;
+            } catch (e) {
+              // Could not parse error response
+            }
+            throw new Error(errorMessage);
           }
         } catch (error) {
           console.error('Checkout error (online):', error);
-          // Fall through to offline queue
-        }
-      }
-
-      // Offline or network error - queue for sync
-      const queueSuccess = await addToSyncQueue('sale', checkoutData, '/api/sales/checkout', 'POST');
-      
-      if (queueSuccess) {
-        // Generate local receipt for offline sale
-        const localTransaction = {
-          id: `local-${Date.now()}`,
-          transactionId: `TXN-${Date.now()}`,
-          date: new Date().toISOString(),
-          customer: {
-            name: customerInfo.name,
-            phone: customerInfo.phone
-          },
-          items: cart.map(item => ({
-            product_name: item.product_name,
-            quantity: item.quantity,
-            price: item.price_rs
-          })),
-          payment: {
-            method: paymentMethod,
-            subtotal: subtotal,
-            discount: discountAmount,
-            tax: taxAmount,
-            total: total
-          },
-          offline: true
-        };
-
-        setReceipt(localTransaction);
-        setShowCheckout(false);
-        clearCart();
-        
-        if (!navigator.onLine) {
-          alert('Sale saved offline. It will sync when internet is available.');
+          // Show error to user
+          const errorMessage = error.message || 'Failed to save sale. Please check your connection and try again.';
+          if (window.confirm(`${errorMessage}\n\nWould you like to save this sale offline and sync later?`)) {
+            // User wants to save offline
+            try {
+              // Try to queue for sync
+              await addToSyncQueue('sale', checkoutData, '/api/sales/checkout', 'POST');
+              
+              // Show local receipt (will sync when online)
+              const localTransaction = createTransaction(null, null, true);
+              localTransaction.offline = true;
+              localTransaction.saved = false;
+              setReceipt(localTransaction);
+              setShowCheckout(false);
+              alert('Sale saved offline. It will sync when internet is available.');
+            } catch (queueError) {
+              console.error('Failed to queue for sync:', queueError);
+              alert('Failed to save sale. Please check your connection and try again.');
+              // Don't show receipt if we can't save it at all
+              return;
+            }
+          } else {
+            // User cancelled - don't proceed with sale
+            return;
+          }
         }
       } else {
-        alert('Failed to save sale. Please try again.');
+        // Offline mode - queue for sync
+        try {
+          await addToSyncQueue('sale', checkoutData, '/api/sales/checkout', 'POST');
+          
+          // Show local receipt (will sync when online)
+          const localTransaction = createTransaction(null, null, true);
+          localTransaction.offline = true;
+          localTransaction.saved = false;
+          setReceipt(localTransaction);
+          setShowCheckout(false);
+          alert('Sale saved offline. It will sync when internet is available.');
+        } catch (queueError) {
+          console.error('Failed to queue for sync:', queueError);
+          alert('Failed to save sale. Please check your connection and try again.');
+          // Don't show receipt if we can't save it at all
+          return;
+        }
       }
     } catch (error) {
       console.error('Checkout error:', error);
-      alert('Checkout failed. Please try again.');
+      // Even on error, try to show local receipt
+      try {
+        const { subtotal, discountAmount, taxAmount, total } = calculateTotals();
+        const createTransaction = (id, txId, isOffline = false) => ({
+          id: id || `local-${Date.now()}`,
+          transactionId: txId || `TXN-${Date.now()}`,
+          date: new Date().toISOString(),
+          customer: {
+            name: customerInfo?.name || 'Walk-in Customer',
+            phone: customerInfo?.phone || ''
+          },
+          items: cart.map(item => ({
+            product_name: item.product_name,
+            reg_number: item.reg_number,
+            quantity: item.quantity,
+            price: item.price_rs,
+            total: (item.quantity * item.price_rs)
+          })),
+          payment: {
+            method: paymentMethod || 'cash',
+            subtotal: subtotal,
+            discount: discountAmount,
+            discountPercent: discount > 0 && subtotal > 0 ? ((discountAmount / subtotal) * 100).toFixed(1) : 0,
+            tax: taxAmount,
+            taxPercent: tax > 0 && subtotal > 0 ? ((taxAmount / subtotal) * 100).toFixed(1) : 0,
+            total: total
+          },
+          offline: isOffline
+        });
+        
+        const localTransaction = createTransaction(null, null, true);
+        setReceipt(localTransaction);
+        setShowCheckout(false);
+        alert('Sale completed (local copy). Some data may not be synced.');
+      } catch (fallbackError) {
+        console.error('Fallback receipt generation failed:', fallbackError);
+        alert('Checkout failed. Please try again.');
+      }
     }
   };
 
@@ -277,4 +416,5 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
 };
 
 export default POS;
+
 

@@ -34,12 +34,40 @@ router.post('/checkout', verifyToken, async (req, res) => {
 
     const saleId = saleResult.insertId;
 
+    // Track low stock alerts and profit
+    const lowStockAlerts = [];
+    let totalProfit = 0;
+
     // Insert items and update stock
     for (const item of items) {
+      // Get stock information to calculate profit and check low stock
+      let stockInfo = null;
+      if (item.reg_number) {
+        const [stock] = await usersPool.query(
+          'SELECT quantity, min_stock_level, purchase_price, unit_price FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
+          [userId, item.reg_number]
+        );
+        stockInfo = stock[0] || null;
+      } else if (item.customProductId) {
+        const [stock] = await usersPool.query(
+          'SELECT quantity, min_stock_level, purchase_price, unit_price FROM stock WHERE user_id = ? AND custom_product_id = ?',
+          [userId, item.customProductId]
+        );
+        stockInfo = stock[0] || null;
+      }
+
+      // Calculate profit (sell_price - purchase_price) * quantity
+      const sellPrice = item.price;
+      const purchasePrice = stockInfo?.purchase_price || 0;
+      const profitPerUnit = sellPrice - purchasePrice;
+      const itemProfit = profitPerUnit * item.quantity;
+      totalProfit += itemProfit;
+
+      // Insert sales item with profit information
       await usersPool.query(
         `INSERT INTO sales_items 
-        (sale_id, medicine_reg_number, custom_product_id, item_name, quantity, price, total)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (sale_id, medicine_reg_number, custom_product_id, item_name, quantity, price, total, purchase_price, profit)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           saleId,
           item.reg_number || null,
@@ -47,7 +75,9 @@ router.post('/checkout', verifyToken, async (req, res) => {
           item.product_name || item.name,
           item.quantity,
           item.price,
-          item.price * item.quantity
+          item.price * item.quantity,
+          purchasePrice,
+          itemProfit
         ]
       );
 
@@ -57,40 +87,127 @@ router.post('/checkout', verifyToken, async (req, res) => {
           'UPDATE stock SET quantity = quantity - ? WHERE user_id = ? AND medicine_reg_number = ?',
           [item.quantity, userId, item.reg_number]
         );
+        
+        // Check if stock is now low
+        const [updatedStock] = await usersPool.query(
+          'SELECT quantity, min_stock_level FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
+          [userId, item.reg_number]
+        );
+        
+        if (updatedStock[0] && updatedStock[0].quantity <= updatedStock[0].min_stock_level) {
+          lowStockAlerts.push({
+            product_name: item.product_name || item.name,
+            reg_number: item.reg_number,
+            current_quantity: updatedStock[0].quantity,
+            min_stock_level: updatedStock[0].min_stock_level
+          });
+        }
       } else if (item.customProductId) {
         await usersPool.query(
           'UPDATE stock SET quantity = quantity - ? WHERE user_id = ? AND custom_product_id = ?',
           [item.quantity, userId, item.customProductId]
         );
+        
+        // Check if stock is now low
+        const [updatedStock] = await usersPool.query(
+          'SELECT quantity, min_stock_level FROM stock WHERE user_id = ? AND custom_product_id = ?',
+          [userId, item.customProductId]
+        );
+        
+        if (updatedStock[0] && updatedStock[0].quantity <= updatedStock[0].min_stock_level) {
+          lowStockAlerts.push({
+            product_name: item.product_name || item.name,
+            custom_product_id: item.customProductId,
+            current_quantity: updatedStock[0].quantity,
+            min_stock_level: updatedStock[0].min_stock_level
+          });
+        }
       }
     }
 
+    // Update sale with total profit
+    await usersPool.query(
+      'UPDATE sales SET profit = ? WHERE id = ?',
+      [totalProfit, saleId]
+    );
+
+    // Store/update daily profit for this pharmacy
+    try {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const [dailyProfit] = await usersPool.query(
+        'SELECT * FROM daily_profits WHERE user_id = ? AND date = ?',
+        [userId, today]
+      );
+
+      if (dailyProfit.length > 0) {
+        // Update existing daily profit
+        await usersPool.query(
+          'UPDATE daily_profits SET total_profit = total_profit + ?, total_sales = total_sales + 1 WHERE id = ?',
+          [totalProfit, dailyProfit[0].id]
+        );
+      } else {
+        // Create new daily profit record
+        await usersPool.query(
+          `INSERT INTO daily_profits (user_id, date, total_profit, total_sales)
+           VALUES (?, ?, ?, 1)`,
+          [userId, today, totalProfit]
+        );
+      }
+    } catch (dailyProfitError) {
+      // If daily_profits table doesn't exist yet, just log the error and continue
+      console.warn('Daily profit tracking failed (table may not exist yet):', dailyProfitError.message);
+    }
+
     const [sale] = await usersPool.query('SELECT * FROM sales WHERE id = ?', [saleId]);
+    
+    if (!sale || sale.length === 0) {
+      return res.status(500).json({ error: 'Sale was created but could not be retrieved' });
+    }
+    
     const [saleItems] = await usersPool.query('SELECT * FROM sales_items WHERE sale_id = ?', [saleId]);
 
-    sale[0].items = saleItems.map(item => ({
-      ...item,
-      product_name: item.item_name,
-      reg_number: item.medicine_reg_number,
-      total: parseFloat(item.total)
-    }));
-
-    sale[0].payment = {
-      method: sale[0].payment_method,
-      subtotal: parseFloat(sale[0].subtotal),
-      discount: parseFloat(sale[0].discount_amount),
-      discountPercent: parseFloat(sale[0].discount_percent),
-      tax: parseFloat(sale[0].tax_amount),
-      taxPercent: parseFloat(sale[0].tax_percent),
-      total: parseFloat(sale[0].total)
+    // Build transaction object with all required fields
+    const transaction = {
+      id: sale[0].transaction_id || sale[0].id.toString(), // Use transaction_id as primary ID
+      transaction_id: sale[0].transaction_id,
+      transactionId: sale[0].transaction_id,
+      sale_id: sale[0].id, // Database ID
+      date: sale[0].created_at || new Date().toISOString(),
+      created_at: sale[0].created_at,
+      items: saleItems.map(item => ({
+        ...item,
+        product_name: item.item_name,
+        reg_number: item.medicine_reg_number,
+        quantity: item.quantity,
+        price: parseFloat(item.price),
+        total: parseFloat(item.total),
+        purchase_price: parseFloat(item.purchase_price || 0),
+        profit: parseFloat(item.profit || 0)
+      })),
+      payment: {
+        method: sale[0].payment_method,
+        subtotal: parseFloat(sale[0].subtotal),
+        discount: parseFloat(sale[0].discount_amount),
+        discountPercent: parseFloat(sale[0].discount_percent),
+        tax: parseFloat(sale[0].tax_amount),
+        taxPercent: parseFloat(sale[0].tax_percent),
+        total: parseFloat(sale[0].total)
+      },
+      customer: {
+        name: sale[0].customer_name,
+        phone: sale[0].customer_phone
+      },
+      profit: parseFloat(totalProfit),
+      offline: false,
+      saved: true
     };
 
-    sale[0].customer = {
-      name: sale[0].customer_name,
-      phone: sale[0].customer_phone
-    };
-
-    res.json({ success: true, transaction: sale[0] });
+    res.json({ 
+      success: true, 
+      transaction: transaction,
+      low_stock_alerts: lowStockAlerts.length > 0 ? lowStockAlerts : null,
+      profit: parseFloat(totalProfit)
+    });
   } catch (error) {
     console.error('Error processing checkout:', error);
     res.status(500).json({ error: 'Error processing checkout', message: error.message });
@@ -229,6 +346,35 @@ router.get('/sales-stats', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching sales statistics:', error);
     res.status(500).json({ error: 'Error fetching sales statistics', message: error.message });
+  }
+});
+
+// Get daily profit for a pharmacy (requires authentication)
+router.get('/daily-profit', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    let query = 'SELECT * FROM daily_profits WHERE user_id = ?';
+    const params = [userId];
+
+    if (startDate) {
+      query += ' AND date >= ?';
+      params.push(startDate);
+    }
+    if (endDate) {
+      query += ' AND date <= ?';
+      params.push(endDate);
+    }
+
+    query += ' ORDER BY date DESC';
+
+    const [profits] = await usersPool.query(query, params);
+
+    res.json(profits);
+  } catch (error) {
+    console.error('Error fetching daily profit:', error);
+    res.status(500).json({ error: 'Error fetching daily profit', message: error.message });
   }
 });
 

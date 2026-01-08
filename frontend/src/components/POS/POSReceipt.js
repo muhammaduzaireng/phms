@@ -95,20 +95,17 @@ const POSReceipt = ({ transaction, onClose, pharmacyName, isElectron = false }) 
 
         <div className="receipt-items">
           <div className="receipt-items-header">
-            <span>Item</span>
-            <span>Qty</span>
-            <span>Price</span>
-            <span>Total</span>
+            <span className="header-name">Item</span>
+            <span className="header-qty">Qty</span>
+            <span className="header-price">Price</span>
           </div>
           {transaction.items.map((item, index) => (
             <div key={index} className="receipt-item">
               <div className="item-name">
                 <strong>{item.product_name}</strong>
-                <small>Reg: {item.reg_number}</small>
               </div>
               <div className="item-qty">{item.quantity}</div>
-              <div className="item-price">{formatPrice(item.price)}</div>
-              <div className="item-total">{formatPrice(item.total)}</div>
+              <div className="item-price">{formatPrice(item.total || item.subtotal || 0)}</div>
             </div>
           ))}
         </div>

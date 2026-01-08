@@ -78,7 +78,7 @@ router.get('/', verifyToken, async (req, res) => {
 router.post('/update', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { medicineRegNumber, customProductId, quantity, minStockLevel, maxStockLevel, unitPrice, expiryDate, batchNumber, location } = req.body;
+    const { medicineRegNumber, customProductId, quantity, minStockLevel, maxStockLevel, unitPrice, purchasePrice, expiryDate, batchNumber, location } = req.body;
 
     // Check if stock record exists
     const [existing] = await usersPool.query(
@@ -94,20 +94,21 @@ router.post('/update', verifyToken, async (req, res) => {
           min_stock_level = ?,
           max_stock_level = ?,
           unit_price = ?,
+          purchase_price = ?,
           expiry_date = ?,
           batch_number = ?,
           location = ?
         WHERE id = ?`,
-        [quantity, minStockLevel, maxStockLevel, unitPrice, expiryDate, batchNumber, location, existing[0].id]
+        [quantity, minStockLevel, maxStockLevel, unitPrice, purchasePrice || 0, expiryDate, batchNumber, location, existing[0].id]
       );
       res.json({ success: true, id: existing[0].id });
     } else {
       // Create new
       const [result] = await usersPool.query(
         `INSERT INTO stock 
-        (user_id, medicine_reg_number, custom_product_id, quantity, min_stock_level, max_stock_level, unit_price, expiry_date, batch_number, location)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [userId, medicineRegNumber || null, customProductId || null, quantity, minStockLevel, maxStockLevel, unitPrice, expiryDate, batchNumber, location]
+        (user_id, medicine_reg_number, custom_product_id, quantity, min_stock_level, max_stock_level, unit_price, purchase_price, expiry_date, batch_number, location)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userId, medicineRegNumber || null, customProductId || null, quantity, minStockLevel, maxStockLevel, unitPrice, purchasePrice || 0, expiryDate, batchNumber, location]
       );
       res.json({ success: true, id: result.insertId });
     }
