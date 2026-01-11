@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import './AddCustomProduct.css';
 import API_BASE_URL from '../../config/api';
 
-const AddCustomProduct = ({ onClose, onSuccess, token }) => {
+const AddCustomProduct = ({ onClose, onSuccess, token, initialName = '' }) => {
   const [formData, setFormData] = useState({
-    name: '',
+    name: initialName || '',
     description: '',
     price: '',
     category: 'General',

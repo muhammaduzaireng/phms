@@ -133,8 +133,8 @@ const POSReceipt = ({ transaction, onClose, pharmacyName, isElectron = false }) 
         </div>
 
         <div className="receipt-footer">
-          <p>Thank you for shopping with us!</p>
-          <p className="receipt-footer-small">Please keep this receipt for your records</p>
+
+          <p className="receipt-footer-small">Please keep this receipt for return within 3 days</p>
         </div>
       </div>
     </div>

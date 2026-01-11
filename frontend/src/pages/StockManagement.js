@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './StockManagement.css';
 import Navigation from '../components/Navigation';
+import AddCustomProduct from '../components/POS/AddCustomProduct';
 import API_BASE_URL from '../config/api';
 
 const StockManagement = ({ onNavigate, user, token }) => {
@@ -25,6 +26,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [showAddCustomProduct, setShowAddCustomProduct] = useState(false);
 
   const authToken = token || localStorage.getItem('pharmacyToken');
 
@@ -48,10 +50,16 @@ const StockManagement = ({ onNavigate, user, token }) => {
       if (response.ok) {
         const data = await response.json();
         setSearchResults(data.products || []);
+        setShowSearchResults(true); // Always show results (even if empty) so user can add custom product
+      } else {
+        // Even if response is not ok, show the "no results" message
+        setSearchResults([]);
         setShowSearchResults(true);
       }
     } catch (error) {
+      // On error, still show "no results" so user can add custom product
       setSearchResults([]);
+      setShowSearchResults(true);
     } finally {
       setSearchLoading(false);
     }
@@ -157,6 +165,24 @@ const StockManagement = ({ onNavigate, user, token }) => {
     setProductSearch(product.product_name);
     setSearchResults([]);
     setShowSearchResults(false);
+  };
+
+  const handleCustomProductAdded = async (customProduct) => {
+    // After custom product is created, search again to get it with proper format
+    // Or format it to match the expected product structure
+    const formattedProduct = {
+      product_name: customProduct.name,
+      custom_product_id: customProduct.id,
+      id: customProduct.id,
+      isCustom: true,
+      price_rs: customProduct.price || 0
+    };
+    
+    // Select the newly created product
+    handleProductSelect(formattedProduct);
+    
+    // Close the add custom product modal
+    setShowAddCustomProduct(false);
   };
 
   const handleSubmit = async (e) => {
@@ -312,7 +338,8 @@ const StockManagement = ({ onNavigate, user, token }) => {
                     // useEffect will handle the search with debounce
                   }}
                   onFocus={() => {
-                    if (searchResults.length > 0) {
+                    // Show search results when input is focused if there's a search term
+                    if (productSearch.trim().length >= 1) {
                       setShowSearchResults(true);
                     }
                   }}
@@ -381,9 +408,36 @@ const StockManagement = ({ onNavigate, user, token }) => {
                     borderRadius: '8px',
                     padding: '12px',
                     zIndex: 1000,
-                    marginTop: '5px'
+                    marginTop: '5px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
                   }}>
-                    No products found
+                    <div style={{ color: '#666', fontSize: '14px' }}>
+                      No products found matching "{productSearch}"
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAddCustomProduct(true);
+                      }}
+                      style={{
+                        padding: '10px 16px',
+                        backgroundColor: '#2563eb',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        width: '100%'
+                      }}
+                      onMouseEnter={(e) => e.target.style.backgroundColor = '#1d4ed8'}
+                      onMouseLeave={(e) => e.target.style.backgroundColor = '#2563eb'}
+                    >
+                      ➕ Add "{productSearch}" as Custom Product
+                    </button>
                   </div>
                 )}
               </div>
@@ -529,6 +583,15 @@ const StockManagement = ({ onNavigate, user, token }) => {
             </form>
           </div>
         </div>
+      )}
+
+      {showAddCustomProduct && (
+        <AddCustomProduct
+          initialName={productSearch}
+          onClose={() => setShowAddCustomProduct(false)}
+          onSuccess={handleCustomProductAdded}
+          token={authToken}
+        />
       )}
     </div>
   );
