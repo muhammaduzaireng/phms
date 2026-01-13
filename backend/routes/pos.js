@@ -31,9 +31,9 @@ router.get('/products', verifyToken, async (req, res) => {
     const customParams = [userId];
 
     if (search) {
-      customQuery += ' AND (name LIKE ? OR description LIKE ?)';
+      customQuery += ' AND (name LIKE ? OR description LIKE ? OR barcode = ?)';
       const searchTerm = `%${search}%`;
-      customParams.push(searchTerm, searchTerm);
+      customParams.push(searchTerm, searchTerm, search);
     }
 
     if (category) {
