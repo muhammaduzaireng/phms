@@ -8,42 +8,11 @@ router.get('/products', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const { search, category } = req.query;
+    const searchQuery = (search || '').toString().trim();
+    const categoryQuery = (category || '').toString().trim();
+    const LIMIT = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 50, 200));
 
-    // Get medicines from centralized DB
-    let medicineQuery = 'SELECT *, "medicine" as product_type FROM medicines WHERE 1=1';
-    const medicineParams = [];
-
-    if (search) {
-      medicineQuery += ' AND (product_name LIKE ? OR generic_name LIKE ? OR reg_number LIKE ?)';
-      const searchTerm = `%${search}%`;
-      medicineParams.push(searchTerm, searchTerm, searchTerm);
-    }
-
-    if (category) {
-      medicineQuery += ' AND category = ?';
-      medicineParams.push(category);
-    }
-
-    const [medicines] = await centralizedPool.query(medicineQuery, medicineParams);
-
-    // Get custom products from users DB
-    let customQuery = 'SELECT *, "custom" as product_type FROM custom_products WHERE user_id = ?';
-    const customParams = [userId];
-
-    if (search) {
-      customQuery += ' AND (name LIKE ? OR description LIKE ? OR barcode = ?)';
-      const searchTerm = `%${search}%`;
-      customParams.push(searchTerm, searchTerm, search);
-    }
-
-    if (category) {
-      customQuery += ' AND category = ?';
-      customParams.push(category);
-    }
-
-    const [customProducts] = await usersPool.query(customQuery, customParams);
-
-    // Get stock information (prices and quantities) for this user
+    // Stock info (used both for enrichment and for stock-first search)
     const [stockItems] = await usersPool.query(
       'SELECT medicine_reg_number, custom_product_id, unit_price, quantity, min_stock_level FROM stock WHERE user_id = ?',
       [userId]
@@ -53,12 +22,14 @@ router.get('/products', verifyToken, async (req, res) => {
     const stockPriceMap = {};
     const stockQuantityMap = {};
     const stockMinLevelMap = {};
+    const stockedMedicineRegNumbers = [];
     stockItems.forEach(item => {
       if (item.medicine_reg_number) {
         const key = `MED-${item.medicine_reg_number}`;
         stockPriceMap[key] = parseFloat(item.unit_price);
         stockQuantityMap[key] = parseInt(item.quantity) || 0;
         stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
+        stockedMedicineRegNumbers.push(item.medicine_reg_number);
       }
       if (item.custom_product_id) {
         const key = `CUST-${item.custom_product_id}`;
@@ -68,64 +39,187 @@ router.get('/products', verifyToken, async (req, res) => {
       }
     });
 
-    // Transform data to consistent format with stock prices and quantities
+    const enrichMedicine = (m) => {
+      const stockKey = `MED-${m.reg_number}`;
+      const price = stockPriceMap[stockKey] !== undefined
+        ? stockPriceMap[stockKey]
+        : parseFloat(m.price_rs);
+      const stockQuantity = stockQuantityMap[stockKey] !== undefined
+        ? stockQuantityMap[stockKey]
+        : 0;
+      const minStockLevel = stockMinLevelMap[stockKey] !== undefined
+        ? stockMinLevelMap[stockKey]
+        : 0;
+
+      return {
+        ...m,
+        product_name: m.product_name,
+        price_rs: price,
+        reg_number: m.reg_number,
+        generic_name: m.generic_name,
+        manufacturer: m.manufacturer,
+        pack_size: m.pack_size,
+        isCustom: false,
+        stock_quantity: stockQuantity,
+        min_stock_level: minStockLevel,
+        in_stock: stockQuantity > 0,
+        low_stock: stockQuantity > 0 && stockQuantity <= minStockLevel && minStockLevel > 0
+      };
+    };
+
+    const enrichCustom = (p) => {
+      const stockKey = `CUST-${p.id}`;
+      const price = stockPriceMap[stockKey] !== undefined
+        ? stockPriceMap[stockKey]
+        : parseFloat(p.price);
+      const stockQuantity = stockQuantityMap[stockKey] !== undefined
+        ? stockQuantityMap[stockKey]
+        : 0;
+      const minStockLevel = stockMinLevelMap[stockKey] !== undefined
+        ? stockMinLevelMap[stockKey]
+        : 0;
+
+      return {
+        ...p,
+        product_name: p.name,
+        price_rs: price,
+        reg_number: `CUST-${p.id}`,
+        generic_name: p.description,
+        manufacturer: p.category,
+        pack_size: p.unit,
+        isCustom: true,
+        custom_product_id: p.id,
+        stock_quantity: stockQuantity,
+        min_stock_level: minStockLevel,
+        in_stock: stockQuantity > 0,
+        low_stock: stockQuantity > 0 && stockQuantity <= minStockLevel && minStockLevel > 0
+      };
+    };
+
+    const sortForPOS = (a, b) => {
+      // Prefer in-stock, then higher quantity, then name
+      const ai = a.in_stock ? 1 : 0;
+      const bi = b.in_stock ? 1 : 0;
+      if (ai !== bi) return bi - ai;
+      const aq = parseInt(a.stock_quantity) || 0;
+      const bq = parseInt(b.stock_quantity) || 0;
+      if (aq !== bq) return bq - aq;
+      return (a.product_name || '').localeCompare(b.product_name || '');
+    };
+
+    // ----------------------------
+    // STOCK-FIRST SEARCH (FAST)
+    // ----------------------------
+    // 1) Search custom products that are IN STOCK (users DB join)
+    // 2) Search medicines that are IN STOCK (centralized DB, filtered by reg_numbers list)
+    // If we find anything in stock, return immediately (no centralized full search).
+    if (searchQuery || categoryQuery) {
+      // Custom products in stock
+      let stockCustomQuery = `
+        SELECT cp.*, "custom" as product_type
+        FROM stock s
+        INNER JOIN custom_products cp ON cp.id = s.custom_product_id
+        WHERE s.user_id = ? AND cp.user_id = ?
+      `;
+      const stockCustomParams = [userId, userId];
+
+      if (searchQuery) {
+        stockCustomQuery += ' AND (cp.name LIKE ? OR cp.description LIKE ? OR cp.barcode = ?)';
+        const like = `%${searchQuery}%`;
+        stockCustomParams.push(like, like, searchQuery);
+      }
+
+      if (categoryQuery) {
+        stockCustomQuery += ' AND cp.category = ?';
+        stockCustomParams.push(categoryQuery);
+      }
+
+      stockCustomQuery += ' ORDER BY s.quantity > 0 DESC, s.quantity DESC, cp.name ASC LIMIT ?';
+      stockCustomParams.push(LIMIT);
+
+      const [stockCustomProducts] = await usersPool.query(stockCustomQuery, stockCustomParams);
+
+      // Medicines in stock (chunked IN list)
+      const stockMedicines = [];
+      if (stockedMedicineRegNumbers.length > 0) {
+        const chunkSize = 800;
+        for (let i = 0; i < stockedMedicineRegNumbers.length; i += chunkSize) {
+          if (stockMedicines.length >= LIMIT) break;
+          const chunk = stockedMedicineRegNumbers.slice(i, i + chunkSize);
+
+          let medQuery = 'SELECT *, "medicine" as product_type FROM medicines WHERE reg_number IN (?)';
+          const medParams = [chunk];
+
+          if (searchQuery) {
+            medQuery += ' AND (product_name LIKE ? OR generic_name LIKE ? OR reg_number LIKE ?)';
+            const like = `%${searchQuery}%`;
+            medParams.push(like, like, like);
+          }
+
+          if (categoryQuery) {
+            medQuery += ' AND category = ?';
+            medParams.push(categoryQuery);
+          }
+
+          medQuery += ' LIMIT ?';
+          medParams.push(LIMIT - stockMedicines.length);
+
+          const [rows] = await centralizedPool.query(medQuery, medParams);
+          stockMedicines.push(...rows);
+        }
+      }
+
+      const stockFirstProducts = [
+        ...stockMedicines.map(enrichMedicine),
+        ...stockCustomProducts.map(enrichCustom)
+      ].sort(sortForPOS).slice(0, LIMIT);
+
+      if (stockFirstProducts.length > 0) {
+        return res.json({ products: stockFirstProducts });
+      }
+    }
+
+    // ----------------------------
+    // FALLBACK SEARCH (LIMITED)
+    // ----------------------------
+    // If nothing in stock matches, search centralized DB + all custom products, but limit results for speed.
+
+    // Medicines (centralized DB)
+    let medicineQuery = 'SELECT *, "medicine" as product_type FROM medicines WHERE 1=1';
+    const medicineParams = [];
+    if (searchQuery) {
+      medicineQuery += ' AND (product_name LIKE ? OR generic_name LIKE ? OR reg_number LIKE ?)';
+      const like = `%${searchQuery}%`;
+      medicineParams.push(like, like, like);
+    }
+    if (categoryQuery) {
+      medicineQuery += ' AND category = ?';
+      medicineParams.push(categoryQuery);
+    }
+    medicineQuery += ' LIMIT ?';
+    medicineParams.push(LIMIT);
+    const [medicines] = await centralizedPool.query(medicineQuery, medicineParams);
+
+    // Custom products (users DB)
+    let customQuery = 'SELECT *, "custom" as product_type FROM custom_products WHERE user_id = ?';
+    const customParams = [userId];
+    if (searchQuery) {
+      customQuery += ' AND (name LIKE ? OR description LIKE ? OR barcode = ?)';
+      const like = `%${searchQuery}%`;
+      customParams.push(like, like, searchQuery);
+    }
+    if (categoryQuery) {
+      customQuery += ' AND category = ?';
+      customParams.push(categoryQuery);
+    }
+    customQuery += ' LIMIT ?';
+    customParams.push(LIMIT);
+    const [customProducts] = await usersPool.query(customQuery, customParams);
+
     const allProducts = [
-      ...medicines.map(m => {
-        const stockKey = `MED-${m.reg_number}`;
-        const price = stockPriceMap[stockKey] !== undefined 
-          ? stockPriceMap[stockKey] 
-          : parseFloat(m.price_rs);
-        const stockQuantity = stockQuantityMap[stockKey] !== undefined 
-          ? stockQuantityMap[stockKey] 
-          : 0;
-        const minStockLevel = stockMinLevelMap[stockKey] !== undefined 
-          ? stockMinLevelMap[stockKey] 
-          : 0;
-        
-        return {
-          ...m,
-          product_name: m.product_name,
-          price_rs: price,
-          reg_number: m.reg_number,
-          generic_name: m.generic_name,
-          manufacturer: m.manufacturer,
-          pack_size: m.pack_size,
-          isCustom: false,
-          stock_quantity: stockQuantity,
-          min_stock_level: minStockLevel,
-          in_stock: stockQuantity > 0,
-          low_stock: stockQuantity > 0 && stockQuantity <= minStockLevel && minStockLevel > 0
-        };
-      }),
-      ...customProducts.map(p => {
-        const stockKey = `CUST-${p.id}`;
-        const price = stockPriceMap[stockKey] !== undefined 
-          ? stockPriceMap[stockKey] 
-          : parseFloat(p.price);
-        const stockQuantity = stockQuantityMap[stockKey] !== undefined 
-          ? stockQuantityMap[stockKey] 
-          : 0;
-        const minStockLevel = stockMinLevelMap[stockKey] !== undefined 
-          ? stockMinLevelMap[stockKey] 
-          : 0;
-        
-        return {
-          ...p,
-          product_name: p.name,
-          price_rs: price,
-          reg_number: `CUST-${p.id}`,
-          generic_name: p.description,
-          manufacturer: p.category,
-          pack_size: p.unit,
-          isCustom: true,
-          custom_product_id: p.id,
-          stock_quantity: stockQuantity,
-          min_stock_level: minStockLevel,
-          in_stock: stockQuantity > 0,
-          low_stock: stockQuantity > 0 && stockQuantity <= minStockLevel && minStockLevel > 0
-        };
-      })
-    ];
+      ...medicines.map(enrichMedicine),
+      ...customProducts.map(enrichCustom)
+    ].sort(sortForPOS).slice(0, LIMIT);
 
     res.json({ products: allProducts });
   } catch (error) {

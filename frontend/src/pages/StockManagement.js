@@ -7,6 +7,9 @@ import API_BASE_URL from '../config/api';
 const StockManagement = ({ onNavigate, user, token }) => {
   const [stock, setStock] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [stockSummary, setStockSummary] = useState(null);
+  const [message, setMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -40,7 +43,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
 
     try {
       setSearchLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/pos/products?search=${encodeURIComponent(searchTerm)}`, {
+      const response = await fetch(`${API_BASE_URL}/api/pos/products?search=${encodeURIComponent(searchTerm)}&limit=50`, {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
@@ -67,7 +70,31 @@ const StockManagement = ({ onNavigate, user, token }) => {
 
   useEffect(() => {
     fetchStock();
+    fetchStockSummary();
   }, []);
+
+  const fetchStockSummary = async () => {
+    try {
+      setSummaryLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/stock/summary`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setStockSummary(data);
+      } else {
+        setStockSummary(null);
+      }
+    } catch (error) {
+      setStockSummary(null);
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
 
   // Search products when productSearch changes
   useEffect(() => {
@@ -100,7 +127,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
         setStock(data);
       }
     } catch (error) {
-      alert('Error fetching stock');
+      // No alerts (per requirement)
     } finally {
       setLoading(false);
     }
@@ -187,9 +214,10 @@ const StockManagement = ({ onNavigate, user, token }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setMessage('');
 
     if (!formData.medicineRegNumber && !formData.customProductId) {
-      alert('Please search and select a product from the centralized database or custom products');
+      setMessage('Please search and select a product (medicine or custom product), or add a new custom product.');
       return;
     }
 
@@ -204,15 +232,16 @@ const StockManagement = ({ onNavigate, user, token }) => {
       });
 
       if (response.ok) {
-        alert(selectedItem ? 'Stock updated successfully!' : 'Stock added successfully!');
+        setMessage(selectedItem ? 'Stock updated successfully.' : 'Stock added successfully.');
         setShowForm(false);
         fetchStock();
+        fetchStockSummary();
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to update stock');
+        setMessage(error.error || 'Failed to update stock.');
       }
     } catch (error) {
-      alert('Error updating stock');
+      setMessage('Error updating stock.');
     }
   };
 
@@ -247,6 +276,30 @@ const StockManagement = ({ onNavigate, user, token }) => {
           ➕ Add Stock
         </button>
       </div>
+
+      <div className="stock-summary">
+        <div className="summary-card">
+          <div className="summary-label">Total Products (in stock)</div>
+          <div className="summary-value">{summaryLoading ? '...' : (stockSummary?.total_products ?? 0)}</div>
+          <div className="summary-sub">
+            {summaryLoading ? '' : `${stockSummary?.medicines_in_stock ?? 0} medicines • ${stockSummary?.custom_products_in_stock ?? 0} custom`}
+          </div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Total Units</div>
+          <div className="summary-value">{summaryLoading ? '...' : (stockSummary?.total_units_in_stock ?? 0)}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Stock Value (Purchase)</div>
+          <div className="summary-value">{summaryLoading ? '...' : formatPrice(stockSummary?.total_purchase_value)}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Stock Value (Selling)</div>
+          <div className="summary-value">{summaryLoading ? '...' : formatPrice(stockSummary?.total_selling_value)}</div>
+        </div>
+      </div>
+
+      {!!message && <div className="stock-message">{message}</div>}
 
       <div className="stock-search">
         <input

@@ -3,6 +3,44 @@ const router = express.Router();
 const { verifyToken } = require('./auth');
 const { usersPool, centralizedPool } = require('../config/database');
 
+// Stock summary for a user (requires authentication)
+// Returns counts + total stock value (purchase & selling)
+router.get('/summary', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [rows] = await usersPool.query(
+      `
+      SELECT
+        COUNT(*) AS total_rows,
+        COUNT(*) AS total_products,
+        SUM(CASE WHEN quantity > 0 THEN 1 ELSE 0 END) AS products_in_stock_rows,
+        COUNT(DISTINCT CASE WHEN quantity > 0 AND medicine_reg_number IS NOT NULL THEN medicine_reg_number END) AS medicines_in_stock,
+        COUNT(DISTINCT CASE WHEN quantity > 0 AND custom_product_id IS NOT NULL THEN custom_product_id END) AS custom_products_in_stock,
+        SUM(CASE WHEN quantity > 0 THEN quantity ELSE 0 END) AS total_units_in_stock,
+        SUM(CASE WHEN quantity > 0 THEN quantity * COALESCE(purchase_price, 0) ELSE 0 END) AS total_purchase_value,
+        SUM(CASE WHEN quantity > 0 THEN quantity * COALESCE(unit_price, 0) ELSE 0 END) AS total_selling_value
+      FROM stock
+      WHERE user_id = ?
+      `,
+      [userId]
+    );
+
+    const r = rows?.[0] || {};
+    res.json({
+      total_products: parseInt(r.medicines_in_stock || 0, 10) + parseInt(r.custom_products_in_stock || 0, 10),
+      medicines_in_stock: parseInt(r.medicines_in_stock || 0, 10),
+      custom_products_in_stock: parseInt(r.custom_products_in_stock || 0, 10),
+      total_units_in_stock: parseInt(r.total_units_in_stock || 0, 10),
+      total_purchase_value: parseFloat(r.total_purchase_value || 0),
+      total_selling_value: parseFloat(r.total_selling_value || 0)
+    });
+  } catch (error) {
+    console.error('Error fetching stock summary:', error);
+    res.status(500).json({ error: 'Error fetching stock summary', message: error.message });
+  }
+});
+
 // Get stock for a user (requires authentication)
 router.get('/', verifyToken, async (req, res) => {
   try {

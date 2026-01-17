@@ -70,6 +70,8 @@ const POSProductSearch = ({ onAddToCart, token }) => {
           'Authorization': `Bearer ${authToken}`
         };
 
+        // Limit results for speed (backend default is 50; keeping explicit helps)
+        params.append('limit', '50');
         const url = `${API_BASE_URL}/api/pos/products?${params}`;
 
         const response = await fetch(url, {
@@ -144,18 +146,26 @@ const POSProductSearch = ({ onAddToCart, token }) => {
   useEffect(() => {
     let timeoutId;
     
-    // If there's a search term (even 1 character) or category, search
-    if (searchTerm.trim().length >= 1 || selectedCategory) {
+    const trimmed = searchTerm.trim();
+    const isLikelyBarcode = /^\d{4,}$/.test(trimmed); // barcode scanners usually send digits
+
+    // For speed: don't search centralized DB on 1 character typing
+    // Search when:
+    // - barcode-like input (fast exact match on custom product barcode)
+    // - 2+ characters
+    // - category filter selected
+    if (trimmed.length >= 2 || isLikelyBarcode || selectedCategory) {
       // Show dropdown immediately when typing
       setShowDropdown(true);
       
-      // For first character, search immediately; for subsequent, debounce
-      if (searchTerm.trim().length === 1) {
+      // For barcode scans, search immediately (scanners often send Enter quickly)
+      if (isLikelyBarcode) {
         searchProducts();
-      } else if (searchTerm.trim().length > 1) {
+      } else {
+        // Debounce for normal typing
         timeoutId = setTimeout(() => {
           searchProducts();
-        }, 150);
+        }, 120);
       }
     } else {
       // Clear results if search is empty and no category
@@ -342,7 +352,7 @@ const POSProductSearch = ({ onAddToCart, token }) => {
       <div className="search-controls">
         <div className="search-input-wrapper">
           {!searchTerm && !loading && (
-            <span className="search-icon">🔍</span>
+            <span className="search-icon"></span>
           )}
           <input
             ref={searchInputRef}
