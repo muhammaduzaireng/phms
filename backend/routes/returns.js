@@ -195,48 +195,102 @@ router.post('/process', verifyToken, async (req, res) => {
           [returnQuantity, saleItem.id]
         );
 
-        // Update stock (increase quantity)
-        if (saleItem.medicine_reg_number) {
-          // Check if stock exists
-          const [existingStock] = await connection.query(
-            'SELECT id, quantity FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
-            [userId, saleItem.medicine_reg_number]
+        // Update stock - restore to original batch if possible
+        if (saleItem.stock_batch_id) {
+          // Return to the original batch it was sold from
+          const [batchStock] = await connection.query(
+            'SELECT id, quantity, is_deleted FROM stock WHERE id = ? AND user_id = ?',
+            [saleItem.stock_batch_id, userId]
           );
 
-          if (existingStock.length > 0) {
-            // Update existing stock
+          if (batchStock.length > 0 && !batchStock[0].is_deleted) {
+            // Batch exists and is not deleted - restore to original batch
             await connection.query(
               'UPDATE stock SET quantity = quantity + ? WHERE id = ?',
-              [returnQuantity, existingStock[0].id]
+              [returnQuantity, saleItem.stock_batch_id]
             );
           } else {
-            // Create new stock record
-            await connection.query(
-              `INSERT INTO stock (user_id, medicine_reg_number, quantity, unit_price)
-               VALUES (?, ?, ?, ?)`,
-              [userId, saleItem.medicine_reg_number, returnQuantity, saleItem.price]
-            );
+            // Original batch no longer exists or was deleted - create new batch or restore to first available
+            if (saleItem.medicine_reg_number) {
+              const [existingStock] = await connection.query(
+                'SELECT id, quantity FROM stock WHERE user_id = ? AND medicine_reg_number = ? AND is_deleted = FALSE ORDER BY created_at ASC LIMIT 1',
+                [userId, saleItem.medicine_reg_number]
+              );
+
+              if (existingStock.length > 0) {
+                // Restore to first available batch for this product
+                await connection.query(
+                  'UPDATE stock SET quantity = quantity + ? WHERE id = ?',
+                  [returnQuantity, existingStock[0].id]
+                );
+              } else {
+                // Create new batch
+                await connection.query(
+                  `INSERT INTO stock (user_id, medicine_reg_number, quantity, unit_price, purchase_price)
+                   VALUES (?, ?, ?, ?, ?)`,
+                  [userId, saleItem.medicine_reg_number, returnQuantity, saleItem.price, saleItem.purchase_price || 0]
+                );
+              }
+            } else if (saleItem.custom_product_id) {
+              const [existingStock] = await connection.query(
+                'SELECT id, quantity FROM stock WHERE user_id = ? AND custom_product_id = ? AND is_deleted = FALSE ORDER BY created_at ASC LIMIT 1',
+                [userId, saleItem.custom_product_id]
+              );
+
+              if (existingStock.length > 0) {
+                // Restore to first available batch for this product
+                await connection.query(
+                  'UPDATE stock SET quantity = quantity + ? WHERE id = ?',
+                  [returnQuantity, existingStock[0].id]
+                );
+              } else {
+                // Create new batch
+                await connection.query(
+                  `INSERT INTO stock (user_id, custom_product_id, quantity, unit_price, purchase_price)
+                   VALUES (?, ?, ?, ?, ?)`,
+                  [userId, saleItem.custom_product_id, returnQuantity, saleItem.price, saleItem.purchase_price || 0]
+                );
+              }
+            }
           }
-        } else if (saleItem.custom_product_id) {
-          // Check if stock exists
-          const [existingStock] = await connection.query(
-            'SELECT id, quantity FROM stock WHERE user_id = ? AND custom_product_id = ?',
-            [userId, saleItem.custom_product_id]
-          );
+        } else {
+          // No batch_id tracked - fall back to original logic
+          if (saleItem.medicine_reg_number) {
+            const [existingStock] = await connection.query(
+              'SELECT id, quantity FROM stock WHERE user_id = ? AND medicine_reg_number = ? AND is_deleted = FALSE ORDER BY created_at ASC LIMIT 1',
+              [userId, saleItem.medicine_reg_number]
+            );
 
-          if (existingStock.length > 0) {
-            // Update existing stock
-            await connection.query(
-              'UPDATE stock SET quantity = quantity + ? WHERE id = ?',
-              [returnQuantity, existingStock[0].id]
+            if (existingStock.length > 0) {
+              await connection.query(
+                'UPDATE stock SET quantity = quantity + ? WHERE id = ?',
+                [returnQuantity, existingStock[0].id]
+              );
+            } else {
+              await connection.query(
+                `INSERT INTO stock (user_id, medicine_reg_number, quantity, unit_price, purchase_price)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [userId, saleItem.medicine_reg_number, returnQuantity, saleItem.price, saleItem.purchase_price || 0]
+              );
+            }
+          } else if (saleItem.custom_product_id) {
+            const [existingStock] = await connection.query(
+              'SELECT id, quantity FROM stock WHERE user_id = ? AND custom_product_id = ? AND is_deleted = FALSE ORDER BY created_at ASC LIMIT 1',
+              [userId, saleItem.custom_product_id]
             );
-          } else {
-            // Create new stock record
-            await connection.query(
-              `INSERT INTO stock (user_id, custom_product_id, quantity, unit_price)
-               VALUES (?, ?, ?, ?)`,
-              [userId, saleItem.custom_product_id, returnQuantity, saleItem.price]
-            );
+
+            if (existingStock.length > 0) {
+              await connection.query(
+                'UPDATE stock SET quantity = quantity + ? WHERE id = ?',
+                [returnQuantity, existingStock[0].id]
+              );
+            } else {
+              await connection.query(
+                `INSERT INTO stock (user_id, custom_product_id, quantity, unit_price, purchase_price)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [userId, saleItem.custom_product_id, returnQuantity, saleItem.price, saleItem.purchase_price || 0]
+              );
+            }
           }
         }
       }

@@ -323,6 +323,24 @@ const StockManagement = ({ onNavigate, user, token }) => {
     return productName.includes(searchLower);
   });
 
+  // Group batches by product (medicine_reg_number or custom_product_id)
+  const groupedStock = filteredStock.reduce((groups, item) => {
+    const productKey = item.medicine_reg_number || `custom_${item.custom_product_id}`;
+    if (!groups[productKey]) {
+      groups[productKey] = {
+        productName: item.medicine_name || item.custom_product_name,
+        medicineRegNumber: item.medicine_reg_number,
+        customProductId: item.custom_product_id,
+        batches: []
+      };
+    }
+    groups[productKey].batches.push(item);
+    return groups;
+  }, {});
+
+  // Convert grouped object to array for rendering
+  const stockGroups = Object.values(groupedStock);
+
   const formatPrice = (price) => {
     return new Intl.NumberFormat('en-PK', {
       style: 'currency',
@@ -384,7 +402,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
       </div>
 
       <div className="stock-list">
-        {filteredStock.length === 0 ? (
+        {stockGroups.length === 0 ? (
           <div className="empty-state">
             <p>No stock items found</p>
             <button className="btn-add" onClick={handleAddNew}>
@@ -392,61 +410,66 @@ const StockManagement = ({ onNavigate, user, token }) => {
             </button>
           </div>
         ) : (
-          <table className="stock-table">
-            <thead>
-              <tr>
-                <th>Product Name</th>
-                <th>Batch Number</th>
-                <th>Expiry Date</th>
-                <th>Quantity</th>
-                <th>Purchase Price</th>
-                <th>Sell Price</th>
-                <th>Profit/Unit</th>
-                <th>Total Value</th>
-                <th>Location</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredStock.map((item) => {
-                const purchasePrice = parseFloat(item.purchase_price || 0);
-                const sellPrice = parseFloat(item.unit_price || 0);
-                const profitPerUnit = sellPrice - purchasePrice;
-                return (
-                  <tr key={item.id} className={item.quantity <= item.min_stock_level ? 'low-stock' : ''}>
-                    <td>
-                      <strong>{item.medicine_name || item.custom_product_name}</strong>
-                    </td>
-                    <td>{item.batch_number || '-'}</td>
-                    <td>{item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}</td>
-                    <td>
-                      <span className={item.quantity <= item.min_stock_level ? 'quantity-low' : ''}>
-                        {item.quantity}
-                      </span>
-                    </td>
-                    <td>{formatPrice(purchasePrice)}</td>
-                    <td>{formatPrice(sellPrice)}</td>
-                    <td className={profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}>
-                      {formatPrice(profitPerUnit)}
-                    </td>
-                    <td>{formatPrice(sellPrice * (item.quantity || 0))}</td>
-                    <td>{item.location || '-'}</td>
-                    <td>
-                      <button className="btn-edit" onClick={() => handleEdit(item)} style={{ marginRight: '5px' }}>
-                        ✏️ Edit
-                      </button>
-                      <button className="btn-add" onClick={() => handleAddBatch(item)} style={{ marginRight: '5px', fontSize: '12px', padding: '5px 10px' }}>
-                        ➕ Batch
-                      </button>
-                      <button className="btn-delete" onClick={() => handleDeleteClick(item)} style={{ backgroundColor: '#dc3545', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>
-                        🗑️ Delete
-                      </button>
-                    </td>
+          stockGroups.map((group) => (
+            <div key={group.medicineRegNumber || `custom_${group.customProductId}`} style={{ marginBottom: '20px' }}>
+              <table className="stock-table">
+                <thead>
+                  <tr>
+                    <th colSpan="10" style={{ textAlign: 'left', backgroundColor: '#f0f0f0', padding: '10px', fontSize: '16px', fontWeight: 'bold' }}>
+                      {group.productName}
+                    </th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  <tr>
+                    <th>Batch Number</th>
+                    <th>Expiry Date</th>
+                    <th>Quantity</th>
+                    <th>Purchase Price</th>
+                    <th>Sell Price</th>
+                    <th>Profit/Unit</th>
+                    <th>Total Value</th>
+                    <th>Location</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.batches.map((item) => {
+                    const purchasePrice = parseFloat(item.purchase_price || 0);
+                    const sellPrice = parseFloat(item.unit_price || 0);
+                    const profitPerUnit = sellPrice - purchasePrice;
+                    return (
+                      <tr key={item.id} className={item.quantity <= item.min_stock_level ? 'low-stock' : ''}>
+                        <td>{item.batch_number || '-'}</td>
+                        <td>{item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}</td>
+                        <td>
+                          <span className={item.quantity <= item.min_stock_level ? 'quantity-low' : ''}>
+                            {item.quantity}
+                          </span>
+                        </td>
+                        <td>{formatPrice(purchasePrice)}</td>
+                        <td>{formatPrice(sellPrice)}</td>
+                        <td className={profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                          {formatPrice(profitPerUnit)}
+                        </td>
+                        <td>{formatPrice(sellPrice * (item.quantity || 0))}</td>
+                        <td>{item.location || '-'}</td>
+                        <td>
+                          <button className="btn-edit" onClick={() => handleEdit(item)} style={{ marginRight: '5px' }}>
+                            ✏️ Edit
+                          </button>
+                          <button className="btn-add" onClick={() => handleAddBatch(item)} style={{ marginRight: '5px', fontSize: '12px', padding: '5px 10px' }}>
+                            ➕ Batch
+                          </button>
+                          <button className="btn-delete" onClick={() => handleDeleteClick(item)} style={{ backgroundColor: '#dc3545', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>
+                            🗑️ Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ))
         )}
       </div>
 

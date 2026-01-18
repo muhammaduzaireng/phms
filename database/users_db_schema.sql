@@ -167,10 +167,13 @@ CREATE TABLE IF NOT EXISTS `sales_items` (
   `total` DECIMAL(10, 2) NOT NULL,
   `purchase_price` DECIMAL(10, 2) DEFAULT 0,
   `profit` DECIMAL(10, 2) DEFAULT 0,
+  `stock_batch_id` INT NULL,
   `returned_quantity` INT DEFAULT 0,
   FOREIGN KEY (`sale_id`) REFERENCES `sales`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`custom_product_id`) REFERENCES `custom_products`(`id`) ON DELETE SET NULL,
-  INDEX `idx_sale_id` (`sale_id`)
+  FOREIGN KEY (`stock_batch_id`) REFERENCES `stock`(`id`) ON DELETE SET NULL,
+  INDEX `idx_sale_id` (`sale_id`),
+  INDEX `idx_stock_batch_id` (`stock_batch_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sale Returns Table

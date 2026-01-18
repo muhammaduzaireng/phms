@@ -108,26 +108,31 @@ router.post('/checkout', verifyToken, async (req, res) => {
       // Calculate average purchase price for profit calculation
       const avgPurchasePrice = totalPurchaseQuantity > 0 ? totalPurchaseValue / totalPurchaseQuantity : 0;
       const profitPerUnit = sellPrice - avgPurchasePrice;
-      const itemProfit = profitPerUnit * item.quantity;
-      totalProfit += itemProfit;
 
-      // Insert sales item with profit information
-      await usersPool.query(
-        `INSERT INTO sales_items 
-        (sale_id, medicine_reg_number, custom_product_id, item_name, quantity, price, total, purchase_price, profit)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          saleId,
-          medicineRegNumber,
-          customProductId,
-          item.product_name || item.name,
-          item.quantity,
-          item.price,
-          item.price * item.quantity,
-          avgPurchasePrice,
-          itemProfit
-        ]
-      );
+      // Create sales_items record for each batch (to track which batch items came from for returns)
+      for (const batchUpdate of batchesToUpdate) {
+        const batchProfit = profitPerUnit * batchUpdate.quantityToDeduct;
+        totalProfit += batchProfit;
+
+        // Insert sales item with batch tracking
+        await usersPool.query(
+          `INSERT INTO sales_items 
+          (sale_id, medicine_reg_number, custom_product_id, item_name, quantity, price, total, purchase_price, profit, stock_batch_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            saleId,
+            medicineRegNumber,
+            customProductId,
+            item.product_name || item.name,
+            batchUpdate.quantityToDeduct, // Quantity from this batch
+            item.price,
+            item.price * batchUpdate.quantityToDeduct,
+            avgPurchasePrice,
+            batchProfit,
+            batchUpdate.id // Track which batch this came from
+          ]
+        );
+      }
 
       // Update stock batches (FIFO - oldest batches first)
       let stockUpdated = false;
@@ -153,23 +158,47 @@ router.post('/checkout', verifyToken, async (req, res) => {
         }
       }
 
-      // If we couldn't fulfill from existing batches, create negative stock record
+      // If we couldn't fulfill from existing batches, create negative stock record and sales_item
       if (remainingQuantity > 0) {
+        let newStockId = null;
         if (medicineRegNumber) {
-          await usersPool.query(
+          const [stockResult] = await usersPool.query(
             `INSERT INTO stock (user_id, medicine_reg_number, quantity, min_stock_level, unit_price, purchase_price)
              VALUES (?, ?, ?, 0, ?, 0)`,
             [userId, medicineRegNumber, -remainingQuantity, item.price, 0]
           );
+          newStockId = stockResult.insertId;
           stockUpdated = true;
         } else if (customProductId) {
-          await usersPool.query(
+          const [stockResult] = await usersPool.query(
             `INSERT INTO stock (user_id, custom_product_id, quantity, min_stock_level, unit_price, purchase_price)
              VALUES (?, ?, ?, 0, ?, 0)`,
             [userId, customProductId, -remainingQuantity, item.price, 0]
           );
+          newStockId = stockResult.insertId;
           stockUpdated = true;
         }
+
+        // Create sales_item for oversold quantity (no batch_id since it's a new negative stock)
+        const oversoldProfit = profitPerUnit * remainingQuantity;
+        totalProfit += oversoldProfit;
+        await usersPool.query(
+          `INSERT INTO sales_items 
+          (sale_id, medicine_reg_number, custom_product_id, item_name, quantity, price, total, purchase_price, profit, stock_batch_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            saleId,
+            medicineRegNumber,
+            customProductId,
+            item.product_name || item.name,
+            remainingQuantity,
+            item.price,
+            item.price * remainingQuantity,
+            avgPurchasePrice,
+            oversoldProfit,
+            newStockId // Track the negative stock batch
+          ]
+        );
       }
       
       if (!stockUpdated && stockBatches.length === 0) {
