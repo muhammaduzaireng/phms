@@ -21,7 +21,7 @@ router.get('/summary', verifyToken, async (req, res) => {
         SUM(CASE WHEN quantity > 0 THEN quantity * COALESCE(purchase_price, 0) ELSE 0 END) AS total_purchase_value,
         SUM(CASE WHEN quantity > 0 THEN quantity * COALESCE(unit_price, 0) ELSE 0 END) AS total_selling_value
       FROM stock
-      WHERE user_id = ? AND is_deleted = FALSE
+      WHERE user_id = ? AND is_deleted = FALSE AND quantity > 0
       `,
       [userId]
     );
@@ -47,8 +47,9 @@ router.get('/', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { medicineRegNumber, customProductId } = req.query;
 
-    // Get stock from users database (only non-deleted items)
-    let stockQuery = 'SELECT * FROM stock WHERE user_id = ? AND is_deleted = FALSE';
+    // Get stock from users database (only non-deleted items with quantity > 0)
+    // Batches with 0 quantity disappear automatically
+    let stockQuery = 'SELECT * FROM stock WHERE user_id = ? AND is_deleted = FALSE AND quantity > 0';
     const stockParams = [userId];
 
     if (medicineRegNumber) {
@@ -168,9 +169,10 @@ router.get('/low-stock', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Get low stock items (only non-deleted)
+    // Get low stock items (only non-deleted with quantity > 0)
+    // Batches with 0 quantity don't appear in low stock either
     const [stock] = await usersPool.query(
-      `SELECT * FROM stock WHERE user_id = ? AND is_deleted = FALSE AND quantity <= min_stock_level`,
+      `SELECT * FROM stock WHERE user_id = ? AND is_deleted = FALSE AND quantity > 0 AND quantity <= min_stock_level`,
       [userId]
     );
 
