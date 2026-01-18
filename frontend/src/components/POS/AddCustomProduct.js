@@ -6,7 +6,8 @@ const AddCustomProduct = ({ onClose, onSuccess, token, initialName = '' }) => {
   const [formData, setFormData] = useState({
     name: initialName || '',
     description: '',
-    price: '',
+    price: '', // Sell price
+    purchasePrice: '', // Purchase price
     category: 'General',
     unit: 'piece',
     barcode: '',
@@ -17,15 +18,15 @@ const AddCustomProduct = ({ onClose, onSuccess, token, initialName = '' }) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'price' || name === 'stock' ? (value === '' ? '' : parseFloat(value) || 0) : value
+      [name]: name === 'price' || name === 'purchasePrice' || name === 'stock' ? (value === '' ? '' : parseFloat(value) || 0) : value
     }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.name.trim() || !formData.price) {
-      alert('Name and price are required');
+    if (!formData.name.trim() || !formData.price || !formData.purchasePrice) {
+      alert('Name, purchase price, and sell price are required');
       return;
     }
 
@@ -85,7 +86,21 @@ const AddCustomProduct = ({ onClose, onSuccess, token, initialName = '' }) => {
 
           <div className="form-row">
             <div className="form-group">
-              <label>Price (Rs) *</label>
+              <label>Purchase Price (Rs) *</label>
+              <input
+                type="number"
+                name="purchasePrice"
+                value={formData.purchasePrice}
+                onChange={handleChange}
+                min="0"
+                step="0.01"
+                required
+              />
+              <small style={{ color: '#666', fontSize: '12px' }}>Price you paid to buy</small>
+            </div>
+
+            <div className="form-group">
+              <label>Sell Price (Rs) *</label>
               <input
                 type="number"
                 name="price"
@@ -95,8 +110,11 @@ const AddCustomProduct = ({ onClose, onSuccess, token, initialName = '' }) => {
                 step="0.01"
                 required
               />
+              <small style={{ color: '#666', fontSize: '12px' }}>Price you sell to customers</small>
             </div>
+          </div>
 
+          <div className="form-row">
             <div className="form-group">
               <label>Category</label>
               <input
@@ -106,6 +124,21 @@ const AddCustomProduct = ({ onClose, onSuccess, token, initialName = '' }) => {
                 onChange={handleChange}
                 placeholder="General"
               />
+            </div>
+
+            <div className="form-group">
+              <label>Expected Profit per Unit</label>
+              <input
+                type="text"
+                value={((formData.price || 0) - (formData.purchasePrice || 0)).toFixed(2)}
+                readOnly
+                style={{ 
+                  backgroundColor: '#f5f5f5', 
+                  color: ((formData.price || 0) - (formData.purchasePrice || 0)) >= 0 ? '#137333' : '#c5221f',
+                  fontWeight: 'bold'
+                }}
+              />
+              <small style={{ color: '#666', fontSize: '12px' }}>Calculated automatically (Sell Price - Purchase Price)</small>
             </div>
           </div>
 

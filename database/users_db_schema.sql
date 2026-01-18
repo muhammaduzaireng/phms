@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Stock Table - User's inventory
+-- Stock Table - User's inventory (supports multiple batches per product)
 CREATE TABLE IF NOT EXISTS `stock` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `user_id` INT NOT NULL,
@@ -34,14 +34,20 @@ CREATE TABLE IF NOT EXISTS `stock` (
   `min_stock_level` INT DEFAULT 0,
   `max_stock_level` INT DEFAULT 0,
   `unit_price` DECIMAL(10, 2),
+  `purchase_price` DECIMAL(10, 2) DEFAULT 0,
   `expiry_date` DATE,
   `batch_number` VARCHAR(100),
   `location` VARCHAR(200),
+  `is_deleted` BOOLEAN DEFAULT FALSE,
+  `deletion_comment` TEXT NULL,
+  `deleted_at` TIMESTAMP NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   INDEX `idx_user_medicine` (`user_id`, `medicine_reg_number`),
-  INDEX `idx_user_custom` (`user_id`, `custom_product_id`)
+  INDEX `idx_user_custom` (`user_id`, `custom_product_id`),
+  INDEX `idx_user_product_active` (`user_id`, `medicine_reg_number`, `custom_product_id`, `is_deleted`),
+  INDEX `idx_batch_order` (`user_id`, `created_at`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Custom Products Table - Products not in centralized DB
@@ -159,6 +165,8 @@ CREATE TABLE IF NOT EXISTS `sales_items` (
   `quantity` INT NOT NULL,
   `price` DECIMAL(10, 2) NOT NULL,
   `total` DECIMAL(10, 2) NOT NULL,
+  `purchase_price` DECIMAL(10, 2) DEFAULT 0,
+  `profit` DECIMAL(10, 2) DEFAULT 0,
   `returned_quantity` INT DEFAULT 0,
   FOREIGN KEY (`sale_id`) REFERENCES `sales`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`custom_product_id`) REFERENCES `custom_products`(`id`) ON DELETE SET NULL,

@@ -21,7 +21,7 @@ router.get('/summary', verifyToken, async (req, res) => {
         SUM(CASE WHEN quantity > 0 THEN quantity * COALESCE(purchase_price, 0) ELSE 0 END) AS total_purchase_value,
         SUM(CASE WHEN quantity > 0 THEN quantity * COALESCE(unit_price, 0) ELSE 0 END) AS total_selling_value
       FROM stock
-      WHERE user_id = ?
+      WHERE user_id = ? AND is_deleted = FALSE
       `,
       [userId]
     );
@@ -47,8 +47,8 @@ router.get('/', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { medicineRegNumber, customProductId } = req.query;
 
-    // Get stock from users database
-    let stockQuery = 'SELECT * FROM stock WHERE user_id = ?';
+    // Get stock from users database (only non-deleted items)
+    let stockQuery = 'SELECT * FROM stock WHERE user_id = ? AND is_deleted = FALSE';
     const stockParams = [userId];
 
     if (medicineRegNumber) {
@@ -60,6 +60,9 @@ router.get('/', verifyToken, async (req, res) => {
       stockQuery += ' AND custom_product_id = ?';
       stockParams.push(customProductId);
     }
+
+    // Order by created_at to show oldest batches first (for FIFO)
+    stockQuery += ' ORDER BY created_at ASC';
 
     const [stock] = await usersPool.query(stockQuery, stockParams);
 
@@ -112,20 +115,24 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
-// Update stock (requires authentication)
+// Update stock - Always creates a new batch (requires authentication)
+// This allows multiple batches per product
 router.post('/update', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { medicineRegNumber, customProductId, quantity, minStockLevel, maxStockLevel, unitPrice, purchasePrice, expiryDate, batchNumber, location } = req.body;
+    const { medicineRegNumber, customProductId, quantity, minStockLevel, maxStockLevel, unitPrice, purchasePrice, expiryDate, batchNumber, location, stockId } = req.body;
 
-    // Check if stock record exists
-    const [existing] = await usersPool.query(
-      'SELECT * FROM stock WHERE user_id = ? AND (medicine_reg_number = ? OR custom_product_id = ?)',
-      [userId, medicineRegNumber || null, customProductId || null]
-    );
+    // If stockId is provided, update that specific batch (for editing existing batch)
+    if (stockId) {
+      const [existing] = await usersPool.query(
+        'SELECT * FROM stock WHERE id = ? AND user_id = ? AND is_deleted = FALSE',
+        [stockId, userId]
+      );
 
-    if (existing.length > 0) {
-      // Update existing
+      if (existing.length === 0) {
+        return res.status(404).json({ error: 'Stock batch not found' });
+      }
+
       await usersPool.query(
         `UPDATE stock SET 
           quantity = ?, 
@@ -137,11 +144,11 @@ router.post('/update', verifyToken, async (req, res) => {
           batch_number = ?,
           location = ?
         WHERE id = ?`,
-        [quantity, minStockLevel, maxStockLevel, unitPrice, purchasePrice || 0, expiryDate, batchNumber, location, existing[0].id]
+        [quantity, minStockLevel, maxStockLevel, unitPrice, purchasePrice || 0, expiryDate, batchNumber, location, stockId]
       );
-      res.json({ success: true, id: existing[0].id });
+      res.json({ success: true, id: stockId });
     } else {
-      // Create new
+      // Create new batch (always create new batch, don't merge with existing)
       const [result] = await usersPool.query(
         `INSERT INTO stock 
         (user_id, medicine_reg_number, custom_product_id, quantity, min_stock_level, max_stock_level, unit_price, purchase_price, expiry_date, batch_number, location)
@@ -161,9 +168,9 @@ router.get('/low-stock', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Get low stock items
+    // Get low stock items (only non-deleted)
     const [stock] = await usersPool.query(
-      `SELECT * FROM stock WHERE user_id = ? AND quantity <= min_stock_level`,
+      `SELECT * FROM stock WHERE user_id = ? AND is_deleted = FALSE AND quantity <= min_stock_level`,
       [userId]
     );
 
@@ -209,6 +216,37 @@ router.get('/low-stock', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching low stock:', error);
     res.status(500).json({ error: 'Error fetching low stock', message: error.message });
+  }
+});
+
+// Delete stock batch (soft delete - requires comment)
+router.post('/delete', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { stockId, comment } = req.body;
+
+    if (!stockId) {
+      return res.status(400).json({ error: 'Stock ID is required' });
+    }
+
+    if (!comment || !comment.trim()) {
+      return res.status(400).json({ error: 'Deletion comment is required' });
+    }
+
+    // Soft delete: mark as deleted with comment
+    await usersPool.query(
+      `UPDATE stock SET 
+        is_deleted = TRUE,
+        deletion_comment = ?,
+        deleted_at = NOW()
+      WHERE id = ? AND user_id = ? AND is_deleted = FALSE`,
+      [comment.trim(), stockId, userId]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting stock:', error);
+    res.status(500).json({ error: 'Error deleting stock', message: error.message });
   }
 });
 

@@ -13,12 +13,14 @@ router.get('/products', verifyToken, async (req, res) => {
     const LIMIT = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 50, 200));
 
     // Stock info (used both for enrichment and for stock-first search)
+    // Get only non-deleted items, ordered by created_at to get latest batch prices
     const [stockItems] = await usersPool.query(
-      'SELECT medicine_reg_number, custom_product_id, unit_price, quantity, min_stock_level FROM stock WHERE user_id = ?',
+      'SELECT medicine_reg_number, custom_product_id, unit_price, quantity, min_stock_level, created_at FROM stock WHERE user_id = ? AND is_deleted = FALSE ORDER BY created_at DESC',
       [userId]
     );
 
     // Create maps for stock prices and quantities
+    // Use latest batch price (first in DESC order) and sum quantities from all batches
     const stockPriceMap = {};
     const stockQuantityMap = {};
     const stockMinLevelMap = {};
@@ -26,15 +28,25 @@ router.get('/products', verifyToken, async (req, res) => {
     stockItems.forEach(item => {
       if (item.medicine_reg_number) {
         const key = `MED-${item.medicine_reg_number}`;
-        stockPriceMap[key] = parseFloat(item.unit_price);
-        stockQuantityMap[key] = parseInt(item.quantity) || 0;
+        // Set price only if not already set (first = latest batch)
+        if (stockPriceMap[key] === undefined) {
+          stockPriceMap[key] = parseFloat(item.unit_price);
+        }
+        // Sum quantities from all batches
+        stockQuantityMap[key] = (stockQuantityMap[key] || 0) + (parseInt(item.quantity) || 0);
         stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
-        stockedMedicineRegNumbers.push(item.medicine_reg_number);
+        if (!stockedMedicineRegNumbers.includes(item.medicine_reg_number)) {
+          stockedMedicineRegNumbers.push(item.medicine_reg_number);
+        }
       }
       if (item.custom_product_id) {
         const key = `CUST-${item.custom_product_id}`;
-        stockPriceMap[key] = parseFloat(item.unit_price);
-        stockQuantityMap[key] = parseInt(item.quantity) || 0;
+        // Set price only if not already set (first = latest batch)
+        if (stockPriceMap[key] === undefined) {
+          stockPriceMap[key] = parseFloat(item.unit_price);
+        }
+        // Sum quantities from all batches
+        stockQuantityMap[key] = (stockQuantityMap[key] || 0) + (parseInt(item.quantity) || 0);
         stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
       }
     });
@@ -134,7 +146,7 @@ router.get('/products', verifyToken, async (req, res) => {
         stockCustomParams.push(categoryQuery);
       }
 
-      stockCustomQuery += ' ORDER BY s.quantity > 0 DESC, s.quantity DESC, cp.name ASC LIMIT ?';
+      stockCustomQuery += ' AND s.is_deleted = FALSE ORDER BY s.quantity > 0 DESC, s.quantity DESC, cp.name ASC LIMIT ?';
       stockCustomParams.push(LIMIT);
 
       const [stockCustomProducts] = await usersPool.query(stockCustomQuery, stockCustomParams);

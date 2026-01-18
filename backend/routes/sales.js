@@ -46,29 +46,68 @@ router.post('/checkout', verifyToken, async (req, res) => {
       const customProductId = item.customProductId || (item.reg_number && String(item.reg_number).startsWith('CUST-') ? parseInt(String(item.reg_number).replace('CUST-', '')) : null);
       const medicineRegNumber = item.reg_number && !String(item.reg_number).startsWith('CUST-') ? item.reg_number : null;
       
-      // Get stock information to calculate profit and check low stock
-      let stockInfo = null;
+      // Get all stock batches for this product (FIFO - oldest first)
+      let stockBatches = [];
+      let latestBatch = null;
       if (medicineRegNumber) {
         const [stock] = await usersPool.query(
-          'SELECT id, quantity, min_stock_level, purchase_price, unit_price FROM stock WHERE user_id = ? AND medicine_reg_number = ?',
+          'SELECT id, quantity, min_stock_level, purchase_price, unit_price, created_at FROM stock WHERE user_id = ? AND medicine_reg_number = ? AND is_deleted = FALSE ORDER BY created_at ASC',
           [userId, medicineRegNumber]
         );
-        stockInfo = stock[0] || null;
+        stockBatches = stock || [];
+        // Get latest batch for sell price (most recent created_at)
+        if (stockBatches.length > 0) {
+          latestBatch = stockBatches.reduce((latest, batch) => {
+            return new Date(batch.created_at) > new Date(latest.created_at) ? batch : latest;
+          }, stockBatches[0]);
+        }
       } else if (customProductId) {
         const [stock] = await usersPool.query(
-          'SELECT id, quantity, min_stock_level, purchase_price, unit_price FROM stock WHERE user_id = ? AND custom_product_id = ?',
+          'SELECT id, quantity, min_stock_level, purchase_price, unit_price, created_at FROM stock WHERE user_id = ? AND custom_product_id = ? AND is_deleted = FALSE ORDER BY created_at ASC',
           [userId, customProductId]
         );
-        stockInfo = stock[0] || null;
+        stockBatches = stock || [];
+        // Get latest batch for sell price
+        if (stockBatches.length > 0) {
+          latestBatch = stockBatches.reduce((latest, batch) => {
+            return new Date(batch.created_at) > new Date(latest.created_at) ? batch : latest;
+          }, stockBatches[0]);
+        }
       }
 
-      // Calculate profit (sell_price - purchase_price) * quantity
+      // Calculate profit using weighted average purchase price from batches being sold
       const sellPrice = parseFloat(item.price) || 0;
-      // Get purchase_price from stock, or use 0 if not available (meaning no profit can be calculated)
-      const purchasePrice = stockInfo?.purchase_price ? parseFloat(stockInfo.purchase_price) : 0;
-      // Profit per unit = selling price - purchase price
-      const profitPerUnit = sellPrice - purchasePrice;
-      // Total profit for this item = profit per unit * quantity
+      let remainingQuantity = item.quantity;
+      let totalPurchaseValue = 0;
+      let totalPurchaseQuantity = 0;
+
+      // Sell from batches using FIFO (First In First Out)
+      const batchesToUpdate = [];
+      for (const batch of stockBatches) {
+        if (remainingQuantity <= 0) break;
+        
+        const batchQuantity = parseInt(batch.quantity) || 0;
+        if (batchQuantity <= 0) continue; // Skip empty batches
+
+        const quantityFromBatch = Math.min(remainingQuantity, batchQuantity);
+        const batchPurchasePrice = parseFloat(batch.purchase_price) || 0;
+        
+        totalPurchaseValue += batchPurchasePrice * quantityFromBatch;
+        totalPurchaseQuantity += quantityFromBatch;
+        
+        batchesToUpdate.push({
+          id: batch.id,
+          currentQuantity: batchQuantity,
+          quantityToDeduct: quantityFromBatch,
+          minStockLevel: batch.min_stock_level
+        });
+        
+        remainingQuantity -= quantityFromBatch;
+      }
+
+      // Calculate average purchase price for profit calculation
+      const avgPurchasePrice = totalPurchaseQuantity > 0 ? totalPurchaseValue / totalPurchaseQuantity : 0;
+      const profitPerUnit = sellPrice - avgPurchasePrice;
       const itemProfit = profitPerUnit * item.quantity;
       totalProfit += itemProfit;
 
@@ -85,55 +124,55 @@ router.post('/checkout', verifyToken, async (req, res) => {
           item.quantity,
           item.price,
           item.price * item.quantity,
-          purchasePrice,
+          avgPurchasePrice,
           itemProfit
         ]
       );
 
-      // Update stock (decrease quantity) - always update if stock record exists
+      // Update stock batches (FIFO - oldest batches first)
       let stockUpdated = false;
-      
-      if (stockInfo && stockInfo.id) {
-        // Stock record exists - update quantity
-        const currentQuantity = stockInfo.quantity || 0;
-        const newQuantity = Math.max(0, currentQuantity - item.quantity); // Prevent negative
+      for (const batchUpdate of batchesToUpdate) {
+        const newQuantity = Math.max(0, batchUpdate.currentQuantity - batchUpdate.quantityToDeduct);
         
         await usersPool.query(
           'UPDATE stock SET quantity = ? WHERE id = ?',
-          [newQuantity, stockInfo.id]
+          [newQuantity, batchUpdate.id]
         );
         stockUpdated = true;
         
         // Check if stock is now low
-        if (newQuantity <= (stockInfo.min_stock_level || 0)) {
+        if (newQuantity <= (batchUpdate.minStockLevel || 0)) {
           lowStockAlerts.push({
             product_name: item.product_name || item.name,
             reg_number: medicineRegNumber,
             custom_product_id: customProductId,
             current_quantity: newQuantity,
-            min_stock_level: stockInfo.min_stock_level || 0
+            min_stock_level: batchUpdate.minStockLevel || 0,
+            batch_id: batchUpdate.id
           });
         }
-      } else {
-        // Stock record doesn't exist - create it with negative quantity to track overselling
+      }
+
+      // If we couldn't fulfill from existing batches, create negative stock record
+      if (remainingQuantity > 0) {
         if (medicineRegNumber) {
-        await usersPool.query(
-          `INSERT INTO stock (user_id, medicine_reg_number, quantity, min_stock_level, unit_price, purchase_price)
-           VALUES (?, ?, ?, 0, ?, 0)`,
-          [userId, medicineRegNumber, -item.quantity, item.price, 0]
-        );
+          await usersPool.query(
+            `INSERT INTO stock (user_id, medicine_reg_number, quantity, min_stock_level, unit_price, purchase_price)
+             VALUES (?, ?, ?, 0, ?, 0)`,
+            [userId, medicineRegNumber, -remainingQuantity, item.price, 0]
+          );
           stockUpdated = true;
         } else if (customProductId) {
-        await usersPool.query(
-          `INSERT INTO stock (user_id, custom_product_id, quantity, min_stock_level, unit_price, purchase_price)
-           VALUES (?, ?, ?, 0, ?, 0)`,
-          [userId, customProductId, -item.quantity, item.price, 0]
-        );
+          await usersPool.query(
+            `INSERT INTO stock (user_id, custom_product_id, quantity, min_stock_level, unit_price, purchase_price)
+             VALUES (?, ?, ?, 0, ?, 0)`,
+            [userId, customProductId, -remainingQuantity, item.price, 0]
+          );
           stockUpdated = true;
         }
       }
       
-      if (!stockUpdated) {
+      if (!stockUpdated && stockBatches.length === 0) {
         console.warn(`[Stock Update] Could not update stock for item: ${item.product_name || item.name} - missing identifiers`);
       }
     }

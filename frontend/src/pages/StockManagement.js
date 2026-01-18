@@ -30,6 +30,9 @@ const StockManagement = ({ onNavigate, user, token }) => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showAddCustomProduct, setShowAddCustomProduct] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
+  const [deleteComment, setDeleteComment] = useState('');
 
   const authToken = token || localStorage.getItem('pharmacyToken');
 
@@ -136,6 +139,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
   const handleEdit = (item) => {
     setSelectedItem(item);
     setFormData({
+      stockId: item.id, // Include stock ID for editing
       medicineRegNumber: item.medicine_reg_number || '',
       customProductId: item.custom_product_id || '',
       quantity: item.quantity || 0,
@@ -153,9 +157,73 @@ const StockManagement = ({ onNavigate, user, token }) => {
     setShowForm(true);
   };
 
+  const handleAddBatch = (item) => {
+    // Add new batch for existing product
+    setSelectedItem(null);
+    setFormData({
+      stockId: null,
+      medicineRegNumber: item.medicine_reg_number || '',
+      customProductId: item.custom_product_id || '',
+      quantity: 0,
+      unitPrice: parseFloat(item.unit_price || 0), // Use latest batch price as default
+      purchasePrice: 0,
+      minStockLevel: item.min_stock_level || 0,
+      maxStockLevel: item.max_stock_level || 0,
+      expiryDate: '',
+      batchNumber: '',
+      location: item.location || ''
+    });
+    setProductSearch(item.medicine_name || item.custom_product_name || '');
+    setSearchResults([]);
+    setShowSearchResults(false);
+    setShowForm(true);
+  };
+
+  const handleDeleteClick = (item) => {
+    setItemToDelete(item);
+    setDeleteComment('');
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteComment.trim()) {
+      setMessage('Please provide a reason for deletion.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/stock/delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          stockId: itemToDelete.id,
+          comment: deleteComment.trim()
+        })
+      });
+
+      if (response.ok) {
+        setMessage('Stock batch deleted successfully.');
+        setShowDeleteModal(false);
+        setItemToDelete(null);
+        setDeleteComment('');
+        fetchStock();
+        fetchStockSummary();
+      } else {
+        const error = await response.json();
+        setMessage(error.error || 'Failed to delete stock batch.');
+      }
+    } catch (error) {
+      setMessage('Error deleting stock batch.');
+    }
+  };
+
   const handleAddNew = () => {
     setSelectedItem(null);
     setFormData({
+      stockId: null,
       medicineRegNumber: '',
       customProductId: '',
       quantity: 0,
@@ -222,17 +290,21 @@ const StockManagement = ({ onNavigate, user, token }) => {
     }
 
     try {
+      const payload = {
+        ...formData,
+        stockId: formData.stockId || undefined // Only include stockId if it exists
+      };
       const response = await fetch(`${API_BASE_URL}/api/stock/update`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       if (response.ok) {
-        setMessage(selectedItem ? 'Stock updated successfully.' : 'Stock added successfully.');
+        setMessage(selectedItem ? 'Stock batch updated successfully.' : 'Stock batch added successfully.');
         setShowForm(false);
         fetchStock();
         fetchStockSummary();
@@ -324,13 +396,13 @@ const StockManagement = ({ onNavigate, user, token }) => {
             <thead>
               <tr>
                 <th>Product Name</th>
+                <th>Batch Number</th>
+                <th>Expiry Date</th>
                 <th>Quantity</th>
                 <th>Purchase Price</th>
                 <th>Sell Price</th>
                 <th>Profit/Unit</th>
                 <th>Total Value</th>
-                <th>Min Level</th>
-                <th>Max Level</th>
                 <th>Location</th>
                 <th>Actions</th>
               </tr>
@@ -344,8 +416,9 @@ const StockManagement = ({ onNavigate, user, token }) => {
                   <tr key={item.id} className={item.quantity <= item.min_stock_level ? 'low-stock' : ''}>
                     <td>
                       <strong>{item.medicine_name || item.custom_product_name}</strong>
-                      {item.batch_number && <small> (Batch: {item.batch_number})</small>}
                     </td>
+                    <td>{item.batch_number || '-'}</td>
+                    <td>{item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}</td>
                     <td>
                       <span className={item.quantity <= item.min_stock_level ? 'quantity-low' : ''}>
                         {item.quantity}
@@ -357,12 +430,16 @@ const StockManagement = ({ onNavigate, user, token }) => {
                       {formatPrice(profitPerUnit)}
                     </td>
                     <td>{formatPrice(sellPrice * (item.quantity || 0))}</td>
-                    <td>{item.min_stock_level || 0}</td>
-                    <td>{item.max_stock_level || 0}</td>
                     <td>{item.location || '-'}</td>
                     <td>
-                      <button className="btn-edit" onClick={() => handleEdit(item)}>
+                      <button className="btn-edit" onClick={() => handleEdit(item)} style={{ marginRight: '5px' }}>
                         ✏️ Edit
+                      </button>
+                      <button className="btn-add" onClick={() => handleAddBatch(item)} style={{ marginRight: '5px', fontSize: '12px', padding: '5px 10px' }}>
+                        ➕ Batch
+                      </button>
+                      <button className="btn-delete" onClick={() => handleDeleteClick(item)} style={{ backgroundColor: '#dc3545', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>
+                        🗑️ Delete
                       </button>
                     </td>
                   </tr>
@@ -377,7 +454,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{selectedItem ? 'Edit Stock' : 'Add Stock'}</h2>
+              <h2>{selectedItem ? 'Edit Stock Batch' : 'Add Stock Batch'}</h2>
               <button className="close-btn" onClick={() => setShowForm(false)}>×</button>
             </div>
             <form onSubmit={handleSubmit} className="stock-form">
@@ -645,6 +722,44 @@ const StockManagement = ({ onNavigate, user, token }) => {
           onSuccess={handleCustomProductAdded}
           token={authToken}
         />
+      )}
+
+      {showDeleteModal && (
+        <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Delete Stock Batch</h2>
+              <button className="close-btn" onClick={() => setShowDeleteModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p><strong>Product:</strong> {itemToDelete?.medicine_name || itemToDelete?.custom_product_name}</p>
+              {itemToDelete?.batch_number && <p><strong>Batch Number:</strong> {itemToDelete.batch_number}</p>}
+              <p><strong>Quantity:</strong> {itemToDelete?.quantity || 0}</p>
+              <p style={{ color: '#dc3545', marginTop: '15px' }}>
+                Are you sure you want to delete this stock batch? This action cannot be undone, but the product will remain in the database.
+              </p>
+              <div className="form-group" style={{ marginTop: '20px' }}>
+                <label>Reason for Deletion *</label>
+                <textarea
+                  value={deleteComment}
+                  onChange={(e) => setDeleteComment(e.target.value)}
+                  placeholder="Please provide a reason for deleting this stock batch..."
+                  required
+                  rows="4"
+                  style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
+                />
+              </div>
+              <div className="form-actions" style={{ marginTop: '20px' }}>
+                <button type="button" className="btn-cancel" onClick={() => setShowDeleteModal(false)}>
+                  Cancel
+                </button>
+                <button type="button" className="btn-delete" onClick={handleDeleteConfirm} style={{ backgroundColor: '#dc3545', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer' }}>
+                  Delete Stock Batch
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
