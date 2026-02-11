@@ -4,7 +4,7 @@ import API_BASE_URL from '../../config/api';
 import AddCustomProduct from './AddCustomProduct';
 import { cacheMedicineSearch, getCachedMedicineSearch } from '../../services/dataSync';
 
-const POSProductSearch = ({ onAddToCart, token }) => {
+const POSProductSearch = ({ onAddToCart, token, onSearchChange }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -20,6 +20,44 @@ const POSProductSearch = ({ onAddToCart, token }) => {
     fetchCategories();
   }, []);
 
+  // Helper function to sort products by relevance to search term
+  const sortProductsByRelevance = (productsArray, searchQuery) => {
+    if (!searchQuery) return productsArray;
+  
+    const searchLower = searchQuery.toLowerCase().trim();
+  
+    return [...productsArray].sort((a, b) => {
+      const nameA = (a.product_name || a.name || '').toLowerCase();
+      const nameB = (b.product_name || b.name || '').toLowerCase();
+  
+      const aStarts = nameA.startsWith(searchLower);
+      const bStarts = nameB.startsWith(searchLower);
+  
+      // 1️⃣ Exact match first
+      if (nameA === searchLower && nameB !== searchLower) return -1;
+      if (nameB === searchLower && nameA !== searchLower) return 1;
+  
+      // 2️⃣ Starts with search text
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+  
+      // 3️⃣ Contains search text
+      const aIncludes = nameA.includes(searchLower);
+      const bIncludes = nameB.includes(searchLower);
+  
+      if (aIncludes && !bIncludes) return -1;
+      if (!aIncludes && bIncludes) return 1;
+  
+      // 4️⃣ Alphabetical order among matches
+      if (aIncludes && bIncludes) {
+        return nameA.localeCompare(nameB);
+      }
+  
+      // 5️⃣ If no match, push to bottom
+      return 0;
+    });
+  };
+  
   // Define searchProducts function using useCallback
   const searchProducts = useCallback(async () => {
     try {
@@ -41,10 +79,9 @@ const POSProductSearch = ({ onAddToCart, token }) => {
       if (!navigator.onLine || searchQuery.length > 0) {
         const cachedResults = getCachedMedicineSearch(searchQuery);
         if (cachedResults && cachedResults.length > 0) {
-          setProducts(cachedResults);
-          if (searchQuery.length >= 1) {
-            setShowDropdown(true);
-          }
+          // Sort cached results too
+          const sortedCached = sortProductsByRelevance(cachedResults, searchQuery);
+          setProducts(sortedCached);
           setLoading(false);
           // Still try to fetch fresh data in background if online
           if (navigator.onLine) {
@@ -84,8 +121,11 @@ const POSProductSearch = ({ onAddToCart, token }) => {
           if (!navigator.onLine) {
             const cachedResults = getCachedMedicineSearch(searchQuery);
             if (cachedResults) {
-              setProducts(cachedResults);
-              setShowDropdown(true);
+              const sortedCached = sortProductsByRelevance(cachedResults, searchQuery);
+              setProducts(sortedCached);
+              if (searchQuery.length >= 1) {
+                setShowDropdown(true);
+              }
               setLoading(false);
               return;
             }
@@ -100,21 +140,25 @@ const POSProductSearch = ({ onAddToCart, token }) => {
           }
           
           setProducts([]);
-          setShowDropdown(true);
           setLoading(false);
           return;
         }
 
         const data = await response.json();
         const productsArray = Array.isArray(data.products) ? data.products : [];
-        setProducts(productsArray);
+        
+        // Sort products by relevance - ALWAYS sort when there's a search query
+        const sortedProducts = searchQuery.length > 0 
+          ? sortProductsByRelevance(productsArray, searchQuery)
+          : productsArray;
+        setProducts(sortedProducts);
         
         // Cache the search results
         if (searchQuery.length > 0) {
           cacheMedicineSearch(searchQuery, productsArray);
         }
         
-        // Ensure dropdown is shown to display results
+        // Show dropdown if we have search results
         if (searchQuery.length >= 1) {
           setShowDropdown(true);
         }
@@ -122,21 +166,24 @@ const POSProductSearch = ({ onAddToCart, token }) => {
         // Offline - try cache
         const cachedResults = getCachedMedicineSearch(searchQuery);
         if (cachedResults) {
-          setProducts(cachedResults);
+          const sortedCached = sortProductsByRelevance(cachedResults, searchQuery);
+          setProducts(sortedCached);
         } else {
           setProducts([]);
         }
-        setShowDropdown(true);
       }
     } catch (err) {
       // On error, try cache
       const cachedResults = getCachedMedicineSearch(searchTerm.trim());
       if (cachedResults) {
-        setProducts(cachedResults);
+        const sortedCached = sortProductsByRelevance(cachedResults, searchTerm.trim());
+        setProducts(sortedCached);
+        if (searchTerm.trim().length >= 1) {
+          setShowDropdown(true);
+        }
       } else {
         setProducts([]);
       }
-      setShowDropdown(true);
     } finally {
       setLoading(false);
     }
@@ -155,7 +202,7 @@ const POSProductSearch = ({ onAddToCart, token }) => {
     // - 2+ characters
     // - category filter selected
     if (trimmed.length >= 2 || isLikelyBarcode || selectedCategory) {
-      // Show dropdown immediately when typing
+      // Show dropdown when typing
       setShowDropdown(true);
       
       // For barcode scans, search immediately (scanners often send Enter quickly)
@@ -178,6 +225,30 @@ const POSProductSearch = ({ onAddToCart, token }) => {
     };
   }, [searchTerm, selectedCategory, searchProducts]);
 
+
+  // Notify parent component about search term changes for inventory table
+  useEffect(() => {
+    if (onSearchChange) {
+      onSearchChange(searchTerm);
+    }
+  }, [searchTerm, onSearchChange]);
+
+  // Keep dropdown visible when we have a search term
+  useEffect(() => {
+    if (searchTerm.trim().length >= 1) {
+      // Show dropdown when searching (even if products haven't loaded yet)
+      setShowDropdown(true);
+      if (products.length > 0) {
+        setSelectedIndex(0);
+      } else {
+        setSelectedIndex(-1);
+      }
+    } else if (searchTerm.trim().length === 0) {
+      setShowDropdown(false);
+      setSelectedIndex(-1);
+    }
+  }, [searchTerm, products.length]);
+
   // Helper function to scroll selected item into view
   const scrollToSelectedItem = useCallback((index) => {
     if (!dropdownRef.current || index < 0 || index >= products.length) return;
@@ -185,7 +256,6 @@ const POSProductSearch = ({ onAddToCart, token }) => {
     const dropdownList = dropdownRef.current.querySelector('.dropdown-products-list');
     if (!dropdownList) return;
 
-    // Get all product items (only elements with class 'dropdown-product-item')
     const productItems = Array.from(dropdownList.children).filter(
       child => child.classList && child.classList.contains('dropdown-product-item')
     );
@@ -199,32 +269,19 @@ const POSProductSearch = ({ onAddToCart, token }) => {
     }
   }, [products.length]);
 
-  // Keep dropdown visible when we have a search term
-  useEffect(() => {
-    if (searchTerm.trim().length >= 1) {
-      setShowDropdown(true);
-      if (products.length > 0) {
-        setSelectedIndex(0);
-      } else {
-        setSelectedIndex(-1);
-      }
-    } else if (!selectedCategory) {
-      setShowDropdown(false);
-      setSelectedIndex(-1);
-    }
-  }, [searchTerm, products.length, selectedCategory]);
-
-  // Handle keyboard navigation
+  // Handle keyboard navigation for dropdown
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (!showDropdown || products.length === 0) return;
+      
+      // Don't interfere if typing in input
+      if (e.target !== searchInputRef.current) return;
 
       switch(e.key) {
         case 'ArrowDown':
           e.preventDefault();
           setSelectedIndex(prev => {
             const newIndex = prev < products.length - 1 ? prev + 1 : 0;
-            // Scroll selected item into view after state update
             setTimeout(() => {
               scrollToSelectedItem(newIndex);
             }, 50);
@@ -236,7 +293,6 @@ const POSProductSearch = ({ onAddToCart, token }) => {
           e.preventDefault();
           setSelectedIndex(prev => {
             const newIndex = prev > 0 ? prev - 1 : products.length - 1;
-            // Scroll selected item into view after state update
             setTimeout(() => {
               scrollToSelectedItem(newIndex);
             }, 50);
@@ -255,10 +311,6 @@ const POSProductSearch = ({ onAddToCart, token }) => {
           e.preventDefault();
           setShowDropdown(false);
           searchInputRef.current?.focus();
-          break;
-        
-        case 'Tab':
-          setShowDropdown(false);
           break;
       }
     };
@@ -290,6 +342,7 @@ const POSProductSearch = ({ onAddToCart, token }) => {
     };
   }, []);
 
+
   const fetchCategories = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/categories`);
@@ -307,6 +360,7 @@ const POSProductSearch = ({ onAddToCart, token }) => {
     setSearchTerm('');
     setProducts([]);
     setShowDropdown(false);
+    setSelectedIndex(-1);
     searchInputRef.current?.focus();
   };
 
@@ -337,6 +391,10 @@ const POSProductSearch = ({ onAddToCart, token }) => {
   const handleSearchChange = (e) => {
     const value = e.target.value;
     setSearchTerm(value);
+    // Notify parent component about search change for inventory table
+    if (onSearchChange) {
+      onSearchChange(value);
+    }
     // Dropdown visibility is handled by useEffect
   };
 
@@ -357,11 +415,29 @@ const POSProductSearch = ({ onAddToCart, token }) => {
           <input
             ref={searchInputRef}
             type="text"
-            className="search-input"
-            placeholder="Search products or medicines..."
+            className="search-input product-search-input"
+            placeholder="Search products or medicines... (F1 to focus, Tab to inventory table)"
             value={searchTerm}
             onChange={handleSearchChange}
             onFocus={handleSearchFocus}
+            onKeyDown={(e) => {
+              // Tab - Move to inventory table
+              if (e.key === 'Tab' && !e.shiftKey && !showDropdown) {
+                // Let default tab behavior work, but focus inventory table
+                setTimeout(() => {
+                  const inventoryTable = document.querySelector('.inventory-table-container');
+                  if (inventoryTable) {
+                    inventoryTable.focus();
+                  }
+                }, 0);
+              }
+              // Escape - Clear search
+              if (e.key === 'Escape') {
+                setSearchTerm('');
+                setProducts([]);
+                setShowDropdown(false);
+              }
+            }}
             autoComplete="off"
           />
           {loading && (
@@ -370,7 +446,7 @@ const POSProductSearch = ({ onAddToCart, token }) => {
             </div>
           )}
 
-          {/* Dropdown Results - Positioned relative to search input */}
+          {/* Dropdown Results - Shows searched products sorted by relevance */}
           {showDropdown && searchTerm.trim().length >= 1 && (
             <div 
               className="search-results-dropdown" 
@@ -390,6 +466,7 @@ const POSProductSearch = ({ onAddToCart, token }) => {
                   onClick={() => {
                     setShowDropdown(false);
                     setSearchTerm('');
+                    setProducts([]);
                   }}
                 >
                   ×

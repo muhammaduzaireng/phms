@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './POS.css';
 import Navigation from '../components/Navigation';
 import POSProductSearch from '../components/POS/POSProductSearch';
+import POSInventoryTable from '../components/POS/POSInventoryTable';
 import POSCart from '../components/POS/POSCart';
 import POSCheckout from '../components/POS/POSCheckout';
 import POSReceipt from '../components/POS/POSReceipt';
@@ -15,37 +16,53 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
   const [receipt, setReceipt] = useState(null);
   const [discount, setDiscount] = useState(0);
   const [tax, setTax] = useState(0);
+  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
 
   // Get token from localStorage if not provided
   const authToken = token || localStorage.getItem('pharmacyToken');
 
-  // Keyboard shortcuts for sales management
+  // Global keyboard shortcuts for POS
   useEffect(() => {
-    if (!isElectron) return; // Only enable in Electron mode
-
     const handleKeyPress = (e) => {
-      // Ignore if typing in input fields
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      // Don't interfere if user is typing in input/textarea
+      const isInputFocused = e.target.tagName === 'INPUT' || 
+                            e.target.tagName === 'TEXTAREA' ||
+                            e.target.isContentEditable;
+      
+      // ESC - Close checkout/receipt
+      if (e.key === 'Escape') {
+        if (showCheckout) {
+          e.preventDefault();
+          setShowCheckout(false);
+        }
+        if (receipt) {
+          e.preventDefault();
+          setReceipt(null);
+        }
         return;
       }
 
-      // ESC - Close checkout/receipt
-      if (e.key === 'Escape') {
-        if (showCheckout) setShowCheckout(false);
-        if (receipt) setReceipt(null);
+      // Only handle shortcuts when not typing in inputs (except for global shortcuts)
+      if (isInputFocused && !e.ctrlKey && !e.altKey && e.key !== 'Escape') {
+        return;
       }
 
-      // F1 - Focus search
+      // F1 - Focus search input
       if (e.key === 'F1') {
         e.preventDefault();
-        const searchInput = document.querySelector('.product-search-input');
-        if (searchInput) searchInput.focus();
+        const searchInput = document.querySelector('.search-input, .product-search-input');
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
       }
 
-      // F2 - Open checkout
+      // F2 - Open checkout (if cart has items)
       if (e.key === 'F2') {
         e.preventDefault();
-        if (cart.length > 0) setShowCheckout(true);
+        if (cart.length > 0 && !showCheckout) {
+          setShowCheckout(true);
+        }
       }
 
       // F3 - Clear cart
@@ -56,22 +73,26 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
         }
       }
 
-      // Ctrl+Enter - Quick checkout (if checkout is open)
+      // Ctrl+Enter - Quick checkout (complete sale)
       if (e.key === 'Enter' && e.ctrlKey) {
         e.preventDefault();
-        const checkoutBtn = document.querySelector('.checkout-button');
-        if (checkoutBtn) checkoutBtn.click();
+        if (cart.length > 0 && !showCheckout) {
+          setShowCheckout(true);
+        } else if (showCheckout) {
+          const checkoutBtn = document.querySelector('.btn-confirm, .checkout-button');
+          if (checkoutBtn) checkoutBtn.click();
+        }
       }
 
-      // Number keys - Quick quantity selection (when product selected)
-      if (e.key >= '1' && e.key <= '9' && e.ctrlKey) {
-        // Could be used for quick quantity entry
+      // Tab - Navigate between sections (when not in input)
+      if (e.key === 'Tab' && !isInputFocused) {
+        // Let default tab behavior work
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [cart, showCheckout, receipt, isElectron]);
+  }, [cart, showCheckout, receipt]);
 
   const addToCart = (medicine) => {
     const existingItem = cart.find(item => item.reg_number === medicine.reg_number);
@@ -340,7 +361,16 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
       )}
       <div className="pos-header">
         <h1>💊 Point of Sale (POS)</h1>
-        <div className="pos-header-actions">
+        <div className="pos-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="keyboard-shortcuts-hint" style={{
+            fontSize: '0.85rem',
+            color: '#666',
+            padding: '6px 12px',
+            background: '#f0f0f0',
+            borderRadius: '6px'
+          }}>
+            ⌨️ <strong>Shortcuts:</strong> F1=Search • F2=Checkout • F3=Clear • ↑↓=Navigate • Enter=Add
+          </div>
           {!isElectron && onNavigate && (
             <button 
               className="btn-secondary" 
@@ -350,15 +380,36 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
               ↩️ Returns
             </button>
           )}
-          <button className="btn-secondary" onClick={clearCart} disabled={cart.length === 0}>
-            Clear Cart
+          <button 
+            className="btn-secondary" 
+            onClick={clearCart} 
+            disabled={cart.length === 0}
+            title="Clear Cart (F3)"
+          >
+            Clear Cart (F3)
           </button>
         </div>
       </div>
 
       <div className="pos-main">
         <div className="pos-left">
-          <POSProductSearch onAddToCart={addToCart} token={authToken} />
+          <POSProductSearch 
+            onAddToCart={addToCart} 
+            token={authToken}
+            onSearchChange={(searchTerm) => {
+              // Pass search term to inventory table via state
+              setInventorySearchTerm(searchTerm);
+            }}
+          />
+        </div>
+
+        <div className="pos-middle">
+          <POSInventoryTable 
+            searchTerm={inventorySearchTerm}
+            onAddToCart={addToCart}
+            token={authToken}
+            cart={cart}
+          />
         </div>
 
         <div className="pos-right">

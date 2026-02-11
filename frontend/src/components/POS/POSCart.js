@@ -1,13 +1,117 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './POSCart.css';
 
 const POSCart = ({ cart, onUpdateQuantity, onRemoveItem, discount, tax, onDiscountChange, onTaxChange, totals, onCheckout }) => {
+  const [selectedCartIndex, setSelectedCartIndex] = useState(-1);
+  const cartContainerRef = useRef(null);
+  const itemRefs = useRef({});
   const formatPrice = (price) => {
     return new Intl.NumberFormat('en-PK', {
       style: 'currency',
       currency: 'PKR',
       minimumFractionDigits: 2
     }).format(price);
+  };
+
+  // Keyboard navigation for cart
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't interfere with input fields
+      const isInputFocused = e.target.tagName === 'INPUT' || 
+                            e.target.tagName === 'TEXTAREA';
+      
+      if (isInputFocused) {
+        // Allow Enter in quantity inputs to move to next item
+        if (e.key === 'Enter' && e.target.classList.contains('qty-input')) {
+          e.preventDefault();
+          const currentIndex = Array.from(document.querySelectorAll('.qty-input')).indexOf(e.target);
+          if (currentIndex < cart.length - 1) {
+            const nextInput = document.querySelectorAll('.qty-input')[currentIndex + 1];
+            if (nextInput) {
+              nextInput.focus();
+              nextInput.select();
+            }
+          } else {
+            // Focus checkout button
+            const checkoutBtn = document.querySelector('.checkout-btn');
+            if (checkoutBtn) checkoutBtn.focus();
+          }
+        }
+        return;
+      }
+
+      if (cart.length === 0) return;
+
+      // Arrow keys - Navigate cart items
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedCartIndex(prev => {
+          const newIndex = prev < cart.length - 1 ? prev + 1 : 0;
+          scrollToCartItem(newIndex);
+          return newIndex;
+        });
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedCartIndex(prev => {
+          const newIndex = prev > 0 ? prev - 1 : cart.length - 1;
+          scrollToCartItem(newIndex);
+          return newIndex;
+        });
+      }
+
+      // Delete/Backspace - Remove selected item
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedCartIndex >= 0) {
+        e.preventDefault();
+        const item = cart[selectedCartIndex];
+        if (item) {
+          onRemoveItem(item.reg_number);
+          setSelectedCartIndex(prev => {
+            const newIndex = prev >= cart.length - 1 ? Math.max(0, cart.length - 2) : prev;
+            return newIndex;
+          });
+        }
+      }
+
+      // + key - Increase quantity of selected item
+      if (e.key === '+' && selectedCartIndex >= 0) {
+        e.preventDefault();
+        const item = cart[selectedCartIndex];
+        if (item) {
+          onUpdateQuantity(item.reg_number, item.quantity + 1);
+        }
+      }
+
+      // - key - Decrease quantity of selected item
+      if (e.key === '-' && selectedCartIndex >= 0) {
+        e.preventDefault();
+        const item = cart[selectedCartIndex];
+        if (item) {
+          onUpdateQuantity(item.reg_number, Math.max(1, item.quantity - 1));
+        }
+      }
+
+      // Enter - Focus quantity input of selected item
+      if (e.key === 'Enter' && selectedCartIndex >= 0) {
+        e.preventDefault();
+        const qtyInput = itemRefs.current[`qty-${selectedCartIndex}`];
+        if (qtyInput) {
+          qtyInput.focus();
+          qtyInput.select();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart, selectedCartIndex, onUpdateQuantity, onRemoveItem]);
+
+  const scrollToCartItem = (index) => {
+    const itemElement = itemRefs.current[`item-${index}`];
+    if (itemElement) {
+      itemElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   };
 
   if (cart.length === 0) {
@@ -27,9 +131,24 @@ const POSCart = ({ cart, onUpdateQuantity, onRemoveItem, discount, tax, onDiscou
     <div className="pos-cart">
       <h2>Shopping Cart ({cart.length})</h2>
       
-      <div className="cart-items">
-        {cart.map((item) => (
-          <div key={item.reg_number} className="cart-item">
+      <div 
+        className="cart-items"
+        ref={cartContainerRef}
+        tabIndex={0}
+        style={{ outline: 'none' }}
+        onFocus={() => {
+          if (cart.length > 0 && selectedCartIndex === -1) {
+            setSelectedCartIndex(0);
+          }
+        }}
+      >
+        {cart.map((item, index) => (
+          <div 
+            key={item.reg_number} 
+            className={`cart-item ${index === selectedCartIndex ? 'selected-cart-item' : ''}`}
+            ref={el => itemRefs.current[`item-${index}`] = el}
+            onClick={() => setSelectedCartIndex(index)}
+          >
             <div className="cart-item-info">
               <h4>{item.product_name}</h4>
               <p className="cart-item-generic">{item.generic_name}</p>
@@ -46,8 +165,37 @@ const POSCart = ({ cart, onUpdateQuantity, onRemoveItem, discount, tax, onDiscou
                 <input
                   type="number"
                   className="qty-input"
+                  ref={el => itemRefs.current[`qty-${index}`] = el}
                   value={item.quantity}
                   onChange={(e) => onUpdateQuantity(item.reg_number, parseInt(e.target.value) || 0)}
+                  onKeyDown={(e) => {
+                    // Arrow up/down to navigate items
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      if (index > 0) {
+                        const prevInput = itemRefs.current[`qty-${index - 1}`];
+                        if (prevInput) {
+                          prevInput.focus();
+                          prevInput.select();
+                          setSelectedCartIndex(index - 1);
+                        }
+                      }
+                    }
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      if (index < cart.length - 1) {
+                        const nextInput = itemRefs.current[`qty-${index + 1}`];
+                        if (nextInput) {
+                          nextInput.focus();
+                          nextInput.select();
+                          setSelectedCartIndex(index + 1);
+                        }
+                      } else {
+                        const checkoutBtn = document.querySelector('.checkout-btn');
+                        if (checkoutBtn) checkoutBtn.focus();
+                      }
+                    }
+                  }}
                   min="1"
                 />
                 <button
@@ -125,8 +273,22 @@ const POSCart = ({ cart, onUpdateQuantity, onRemoveItem, discount, tax, onDiscou
           </div>
         </div>
 
-        <button className="checkout-btn" onClick={onCheckout}>
-          Proceed to Checkout
+        <button 
+          className="checkout-btn" 
+          onClick={onCheckout}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp' && cart.length > 0) {
+              e.preventDefault();
+              const lastInput = itemRefs.current[`qty-${cart.length - 1}`];
+              if (lastInput) {
+                lastInput.focus();
+                lastInput.select();
+                setSelectedCartIndex(cart.length - 1);
+              }
+            }
+          }}
+        >
+          Proceed to Checkout (F2)
         </button>
       </div>
     </div>

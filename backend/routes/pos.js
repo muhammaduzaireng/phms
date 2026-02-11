@@ -10,7 +10,13 @@ router.get('/products', verifyToken, async (req, res) => {
     const { search, category } = req.query;
     const searchQuery = (search || '').toString().trim();
     const categoryQuery = (category || '').toString().trim();
-    const LIMIT = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 50, 200));
+    // Allow higher limit for inventory table (up to 50000), default to 200 for search
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const isInventoryRequest = requestedLimit && requestedLimit > 200;
+    // For inventory table (no search query and high limit), allow up to 50000
+    const LIMIT = isInventoryRequest 
+      ? Math.min(requestedLimit, 50000) 
+      : Math.max(1, Math.min(requestedLimit || 50, 10000));
 
     // Stock info (used both for enrichment and for stock-first search)
     // Get only non-deleted items, ordered by created_at to get latest batch prices
@@ -118,6 +124,48 @@ router.get('/products', verifyToken, async (req, res) => {
       if (aq !== bq) return bq - aq;
       return (a.product_name || '').localeCompare(b.product_name || '');
     };
+
+    // ----------------------------
+    // INVENTORY TABLE MODE (ALL PRODUCTS IN STOCK)
+    // ----------------------------
+    // When no search/category and high limit requested, return ALL products in stock
+    if (!searchQuery && !categoryQuery && isInventoryRequest) {
+      // Get all custom products in stock (use DISTINCT to avoid duplicates from multiple batches)
+      const stockCustomQuery = `
+        SELECT DISTINCT cp.*, "custom" as product_type
+        FROM stock s
+        INNER JOIN custom_products cp ON cp.id = s.custom_product_id
+        WHERE s.user_id = ? AND cp.user_id = ? AND s.is_deleted = FALSE AND s.quantity > 0
+        ORDER BY cp.name ASC
+      `;
+      const [stockCustomProducts] = await usersPool.query(stockCustomQuery, [userId, userId]);
+
+      // Get all medicines in stock (chunked IN list, no limit)
+      const stockMedicines = [];
+      const seenMedicines = new Set(); // Track to avoid duplicates
+      if (stockedMedicineRegNumbers.length > 0) {
+        const chunkSize = 800;
+        for (let i = 0; i < stockedMedicineRegNumbers.length; i += chunkSize) {
+          const chunk = stockedMedicineRegNumbers.slice(i, i + chunkSize);
+          const medQuery = 'SELECT *, "medicine" as product_type FROM medicines WHERE reg_number IN (?) ORDER BY product_name ASC';
+          const [rows] = await centralizedPool.query(medQuery, [chunk]);
+          // Filter out duplicates
+          rows.forEach(row => {
+            if (!seenMedicines.has(row.reg_number)) {
+              stockMedicines.push(row);
+              seenMedicines.add(row.reg_number);
+            }
+          });
+        }
+      }
+
+      const allStockProducts = [
+        ...stockMedicines.map(enrichMedicine),
+        ...stockCustomProducts.map(enrichCustom)
+      ].sort(sortForPOS);
+
+      return res.json({ products: allStockProducts });
+    }
 
     // ----------------------------
     // STOCK-FIRST SEARCH (FAST)

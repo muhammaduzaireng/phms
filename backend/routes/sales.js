@@ -296,91 +296,137 @@ router.post('/checkout', verifyToken, async (req, res) => {
 });
 
 // Get sales/transactions (requires authentication)
+// Optimized: Defaults to today's sales, lazy loads items, uses pagination
 router.get('/transactions', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { startDate, endDate, page = 1, limit = 50 } = req.query;
+    const { startDate, endDate, page = 1, limit = 50, includeItems = 'false' } = req.query;
+
+    // Default to today's date if no dates provided
+    const today = new Date().toISOString().split('T')[0];
+    const defaultStartDate = startDate || today;
+    const defaultEndDate = endDate || today;
 
     let query = 'SELECT * FROM sales WHERE user_id = ?';
     const params = [userId];
 
-    if (startDate) {
-      query += ' AND DATE(created_at) >= ?';
-      params.push(startDate);
-    }
-    if (endDate) {
-      query += ' AND DATE(created_at) <= ?';
-      params.push(endDate);
-    }
+    // Always filter by date range (defaults to today)
+    query += ' AND DATE(created_at) >= ? AND DATE(created_at) <= ?';
+    params.push(defaultStartDate, defaultEndDate);
 
     query += ' ORDER BY created_at DESC';
 
+    // Apply pagination at database level
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
+    query += ' LIMIT ? OFFSET ?';
+    params.push(limitNum, offset);
+
     const [sales] = await usersPool.query(query, params);
 
-    // Transform sales data to match frontend expectations
-    const transactions = sales.map(sale => {
-      // Will add items below
-      return {
-        id: sale.transaction_id || sale.id,
-        sale_id: sale.id,
-        date: sale.created_at || sale.sale_date,
-        created_at: sale.created_at,
-        customer: {
-          name: sale.customer_name || 'Walk-in Customer',
-          phone: sale.customer_phone || null
-        },
-        customer_name: sale.customer_name,
-        customer_phone: sale.customer_phone,
-        payment: {
-          method: sale.payment_method || 'cash',
-          subtotal: parseFloat(sale.subtotal || 0),
-          discount: parseFloat(sale.discount_amount || 0),
-          tax: parseFloat(sale.tax_amount || 0),
-          total: parseFloat(sale.total || 0)
-        },
-        payment_method: sale.payment_method,
-        subtotal: parseFloat(sale.subtotal || 0),
-        discount_amount: parseFloat(sale.discount_amount || 0),
-        tax_amount: parseFloat(sale.tax_amount || 0),
-        total_amount: parseFloat(sale.total || 0),
-        total: parseFloat(sale.total || 0),
-        items: [] // Will be populated below
-      };
-    });
+    // Get total count for pagination
+    let countQuery = 'SELECT COUNT(*) as total FROM sales WHERE user_id = ? AND DATE(created_at) >= ? AND DATE(created_at) <= ?';
+    const countParams = [userId, defaultStartDate, defaultEndDate];
+    const [countResult] = await usersPool.query(countQuery, countParams);
+    const total = countResult[0].total;
 
-    // Get items for each sale
-    for (const transaction of transactions) {
-      const [items] = await usersPool.query(
-        'SELECT * FROM sales_items WHERE sale_id = ?',
-        [transaction.sale_id]
+    // Get item counts in batch (much faster than individual queries)
+    const saleIds = sales.map(s => s.id);
+    let itemCountsMap = {};
+    if (saleIds.length > 0) {
+      const placeholders = saleIds.map(() => '?').join(',');
+      const [itemCounts] = await usersPool.query(
+        `SELECT sale_id, COUNT(*) as item_count FROM sales_items WHERE sale_id IN (${placeholders}) GROUP BY sale_id`,
+        saleIds
       );
-      transaction.items = items.map(item => ({
-        ...item,
-        product_name: item.item_name || item.product_name,
-        name: item.item_name || item.product_name,
-        quantity: item.quantity || item.qty,
-        qty: item.quantity || item.qty,
-        price: parseFloat(item.price || item.unit_price || 0),
-        unit_price: parseFloat(item.price || item.unit_price || 0),
-        total: parseFloat(item.total || item.subtotal || 0),
-        subtotal: parseFloat(item.total || item.subtotal || 0)
-      }));
-      transaction.items_count = items.length;
+      itemCounts.forEach(count => {
+        itemCountsMap[count.sale_id] = parseInt(count.item_count);
+      });
     }
 
-    const startIndex = (parseInt(page) - 1) * parseInt(limit);
-    const paginatedSales = transactions.slice(startIndex, startIndex + parseInt(limit));
+    // Transform sales data (NO items loaded by default - huge performance boost)
+    const transactions = sales.map(sale => ({
+      id: sale.transaction_id || sale.id,
+      sale_id: sale.id,
+      date: sale.created_at || sale.sale_date,
+      created_at: sale.created_at,
+      customer: {
+        name: sale.customer_name || 'Walk-in Customer',
+        phone: sale.customer_phone || null
+      },
+      customer_name: sale.customer_name,
+      customer_phone: sale.customer_phone,
+      payment: {
+        method: sale.payment_method || 'cash',
+        subtotal: parseFloat(sale.subtotal || 0),
+        discount: parseFloat(sale.discount_amount || 0),
+        tax: parseFloat(sale.tax_amount || 0),
+        total: parseFloat(sale.total || 0)
+      },
+      payment_method: sale.payment_method,
+      subtotal: parseFloat(sale.subtotal || 0),
+      discount_amount: parseFloat(sale.discount_amount || 0),
+      tax_amount: parseFloat(sale.tax_amount || 0),
+      total_amount: parseFloat(sale.total || 0),
+      total: parseFloat(sale.total || 0),
+      items_count: itemCountsMap[sale.id] || 0,
+      items: [] // Empty by default - loaded on demand
+    }));
 
     res.json({
-      transactions: paginatedSales,
-      total: transactions.length,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(transactions.length / parseInt(limit))
+      transactions: transactions,
+      total: total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
+      startDate: defaultStartDate,
+      endDate: defaultEndDate
     });
   } catch (error) {
     console.error('Error fetching sales:', error);
     res.status(500).json({ error: 'Error fetching sales', message: error.message });
+  }
+});
+
+// Get transaction items (lazy loading - requires authentication)
+router.get('/transaction/:saleId/items', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { saleId } = req.params;
+
+    // Verify the sale belongs to the user
+    const [sales] = await usersPool.query(
+      'SELECT id FROM sales WHERE id = ? AND user_id = ?',
+      [saleId, userId]
+    );
+
+    if (sales.length === 0) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    // Get items for this sale
+    const [items] = await usersPool.query(
+      'SELECT * FROM sales_items WHERE sale_id = ?',
+      [saleId]
+    );
+
+    const formattedItems = items.map(item => ({
+      ...item,
+      product_name: item.item_name || item.product_name,
+      name: item.item_name || item.product_name,
+      quantity: item.quantity || item.qty,
+      qty: item.quantity || item.qty,
+      price: parseFloat(item.price || item.unit_price || 0),
+      unit_price: parseFloat(item.price || item.unit_price || 0),
+      total: parseFloat(item.total || item.subtotal || 0),
+      subtotal: parseFloat(item.total || item.subtotal || 0)
+    }));
+
+    res.json({ items: formattedItems });
+  } catch (error) {
+    console.error('Error fetching transaction items:', error);
+    res.status(500).json({ error: 'Error fetching transaction items', message: error.message });
   }
 });
 
