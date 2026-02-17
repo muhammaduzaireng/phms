@@ -16,7 +16,7 @@ router.get('/products', verifyToken, async (req, res) => {
     // For inventory table (no search query and high limit), allow up to 50000
     const LIMIT = isInventoryRequest 
       ? Math.min(requestedLimit, 50000) 
-      : Math.max(1, Math.min(requestedLimit || 50, 10000));
+      : Math.max(1, Math.min(requestedLimit || 50, 100000));
 
     // Stock info (used both for enrichment and for stock-first search)
     // Get only non-deleted items, ordered by created_at to get latest batch prices
