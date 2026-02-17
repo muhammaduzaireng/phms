@@ -45,71 +45,94 @@ router.get('/summary', verifyToken, async (req, res) => {
 router.get('/', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { medicineRegNumber, customProductId } = req.query;
+    const { medicineRegNumber, customProductId, page = 1, limit = 50, sortBy = 'low_stock_first' } = req.query;
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 50;
+    const offset = (pageNum - 1) * limitNum;
 
-    // Get stock from users database (only non-deleted items with quantity > 0)
-    // Batches with 0 quantity disappear automatically
-    let stockQuery = 'SELECT * FROM stock WHERE user_id = ? AND is_deleted = FALSE AND quantity > 0';
-    const stockParams = [userId];
+    // Build base query with JOINs to avoid N+1 queries
+    // Note: medicines table is in centralized DB, so we'll fetch those separately in batch
+    let stockQuery = `
+      SELECT 
+        s.*,
+        cp.name as custom_product_name
+      FROM stock s
+      LEFT JOIN custom_products cp ON s.custom_product_id = cp.id AND cp.user_id = ?
+      WHERE s.user_id = ? AND s.is_deleted = FALSE AND s.quantity > 0
+    `;
+    const stockParams = [userId, userId];
 
     if (medicineRegNumber) {
-      stockQuery += ' AND medicine_reg_number = ?';
+      stockQuery += ' AND s.medicine_reg_number = ?';
       stockParams.push(medicineRegNumber);
     }
 
     if (customProductId) {
-      stockQuery += ' AND custom_product_id = ?';
+      stockQuery += ' AND s.custom_product_id = ?';
       stockParams.push(customProductId);
     }
 
-    // Order by created_at to show oldest batches first (for FIFO)
-    stockQuery += ' ORDER BY created_at ASC';
+    // Sorting: low stock first, then by product name
+    if (sortBy === 'low_stock_first') {
+      stockQuery += ` ORDER BY 
+        CASE WHEN s.quantity <= s.min_stock_level AND s.min_stock_level > 0 THEN 0 ELSE 1 END,
+        cp.name ASC,
+        s.created_at ASC`;
+    } else if (sortBy === 'name') {
+      stockQuery += ' ORDER BY cp.name ASC, s.created_at ASC';
+    } else {
+      stockQuery += ' ORDER BY s.created_at ASC';
+    }
+
+    // Get total count for pagination
+    const countQuery = stockQuery.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) as total FROM');
+    const [countResult] = await usersPool.query(countQuery, stockParams);
+    const total = countResult[0]?.total || 0;
+
+    // Add pagination
+    stockQuery += ` LIMIT ? OFFSET ?`;
+    stockParams.push(limitNum, offset);
 
     const [stock] = await usersPool.query(stockQuery, stockParams);
 
-    // Enrich stock data with medicine and custom product names
-    const enrichedStock = await Promise.all(stock.map(async (item) => {
-      let medicineName = null;
-      let customProductName = null;
-
-      // Get medicine name from centralized database
-      if (item.medicine_reg_number) {
+    // Fetch medicine names in batch to avoid N+1 queries
+    const medicineRegNumbers = [...new Set(stock.filter(s => s.medicine_reg_number).map(s => s.medicine_reg_number))];
+    const medicineNamesMap = {};
+    
+    if (medicineRegNumbers.length > 0) {
+      // Query in chunks to avoid query size limits
+      const chunkSize = 500;
+      for (let i = 0; i < medicineRegNumbers.length; i += chunkSize) {
+        const chunk = medicineRegNumbers.slice(i, i + chunkSize);
         try {
           const [medicines] = await centralizedPool.query(
-            'SELECT product_name FROM medicines WHERE reg_number = ?',
-            [item.medicine_reg_number]
+            'SELECT reg_number, product_name FROM medicines WHERE reg_number IN (?)',
+            [chunk]
           );
-          if (medicines.length > 0) {
-            medicineName = medicines[0].product_name;
-          }
+          medicines.forEach(m => {
+            medicineNamesMap[m.reg_number] = m.product_name;
+          });
         } catch (err) {
-          // Medicine not found in centralized DB, continue
+          console.error('Error fetching medicine names:', err);
         }
       }
+    }
 
-      // Get custom product name from users database
-      if (item.custom_product_id) {
-        try {
-          const [customProducts] = await usersPool.query(
-            'SELECT name FROM custom_products WHERE id = ? AND user_id = ?',
-            [item.custom_product_id, userId]
-          );
-          if (customProducts.length > 0) {
-            customProductName = customProducts[0].name;
-          }
-        } catch (err) {
-          // Custom product not found, continue
-        }
-      }
-
-      return {
-        ...item,
-        medicine_name: medicineName,
-        custom_product_name: customProductName
-      };
+    // Enrich stock with medicine names
+    const enrichedStock = stock.map(item => ({
+      ...item,
+      medicine_name: item.medicine_reg_number ? (medicineNamesMap[item.medicine_reg_number] || null) : null
     }));
 
-    res.json(enrichedStock);
+    res.json({
+      stock: enrichedStock,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: total,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error) {
     console.error('Error fetching stock:', error);
     res.status(500).json({ error: 'Error fetching stock', message: error.message });

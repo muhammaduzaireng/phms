@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import './StockManagement.css';
 import Navigation from '../components/Navigation';
 import AddCustomProduct from '../components/POS/AddCustomProduct';
@@ -13,6 +13,11 @@ const StockManagement = ({ onNavigate, user, token }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [sortBy, setSortBy] = useState('low_stock_first');
+  const itemsPerPage = 20;
   const [formData, setFormData] = useState({
     medicineRegNumber: '',
     customProductId: '',
@@ -72,7 +77,6 @@ const StockManagement = ({ onNavigate, user, token }) => {
   }, [authToken]);
 
   useEffect(() => {
-    fetchStock();
     fetchStockSummary();
   }, []);
 
@@ -115,10 +119,16 @@ const StockManagement = ({ onNavigate, user, token }) => {
     };
   }, [productSearch, searchProducts]);
 
-  const fetchStock = async () => {
+  const fetchStock = async (page = currentPage, sort = sortBy) => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/stock`, {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: itemsPerPage.toString(),
+        sortBy: sort
+      });
+      
+      const response = await fetch(`${API_BASE_URL}/api/stock?${params}`, {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
@@ -127,7 +137,10 @@ const StockManagement = ({ onNavigate, user, token }) => {
 
       if (response.ok) {
         const data = await response.json();
-        setStock(data);
+        setStock(data.stock || []);
+        setTotalPages(data.pagination?.totalPages || 1);
+        setTotalItems(data.pagination?.total || 0);
+        setCurrentPage(data.pagination?.page || 1);
       }
     } catch (error) {
       // No alerts (per requirement)
@@ -135,6 +148,11 @@ const StockManagement = ({ onNavigate, user, token }) => {
       setLoading(false);
     }
   };
+
+  // Refetch when page or sort changes
+  useEffect(() => {
+    fetchStock(currentPage, sortBy);
+  }, [currentPage, sortBy]);
 
   const handleEdit = (item) => {
     setSelectedItem(item);
@@ -209,7 +227,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
         setShowDeleteModal(false);
         setItemToDelete(null);
         setDeleteComment('');
-        fetchStock();
+        fetchStock(currentPage, sortBy);
         fetchStockSummary();
       } else {
         const error = await response.json();
@@ -306,7 +324,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
       if (response.ok) {
         setMessage(selectedItem ? 'Stock batch updated successfully.' : 'Stock batch added successfully.');
         setShowForm(false);
-        fetchStock();
+        fetchStock(currentPage, sortBy);
         fetchStockSummary();
       } else {
         const error = await response.json();
@@ -317,11 +335,17 @@ const StockManagement = ({ onNavigate, user, token }) => {
     }
   };
 
-  const filteredStock = stock.filter(item => {
+  // Filter stock client-side for search (since backend pagination is already optimized)
+  const filteredStock = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return stock;
+    }
     const searchLower = searchTerm.toLowerCase();
-    const productName = (item.medicine_name || item.custom_product_name || '').toLowerCase();
-    return productName.includes(searchLower);
-  });
+    return stock.filter(item => {
+      const productName = (item.medicine_name || item.custom_product_name || '').toLowerCase();
+      return productName.includes(searchLower);
+    });
+  }, [stock, searchTerm]);
 
   // Group batches by product (medicine_reg_number or custom_product_id)
   const groupedStock = filteredStock.reduce((groups, item) => {
@@ -391,18 +415,37 @@ const StockManagement = ({ onNavigate, user, token }) => {
 
       {!!message && <div className="stock-message">{message}</div>}
 
-      <div className="stock-search">
-        <input
-          type="text"
-          placeholder="Search products..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="search-input"
-        />
+      <div className="stock-controls">
+        <div className="stock-search">
+          <input
+            type="text"
+            placeholder="Search products..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="search-input"
+          />
+        </div>
+        <div className="stock-sort">
+          <label>Sort by:</label>
+          <select 
+            value={sortBy} 
+            onChange={(e) => {
+              setSortBy(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="sort-select"
+          >
+            <option value="low_stock_first">Low Stock First</option>
+            <option value="name">Name (A-Z)</option>
+            <option value="created_at">Oldest First</option>
+          </select>
+        </div>
       </div>
 
       <div className="stock-list">
-        {stockGroups.length === 0 ? (
+        {loading ? (
+          <div className="loading">Loading stock...</div>
+        ) : stockGroups.length === 0 ? (
           <div className="empty-state">
             <p>No stock items found</p>
             <button className="btn-add" onClick={handleAddNew}>
@@ -410,7 +453,11 @@ const StockManagement = ({ onNavigate, user, token }) => {
             </button>
           </div>
         ) : (
-          stockGroups.map((group) => (
+          <>
+            <div className="stock-pagination-info">
+              Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} products
+            </div>
+            {stockGroups.map((group) => (
             <div key={group.medicineRegNumber || `custom_${group.customProductId}`} style={{ marginBottom: '20px' }}>
               <table className="stock-table">
                 <thead>
@@ -469,7 +516,27 @@ const StockManagement = ({ onNavigate, user, token }) => {
                 </tbody>
               </table>
             </div>
-          ))
+            ))}
+            <div className="stock-pagination">
+              <button 
+                className="pagination-btn" 
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                ← Previous
+              </button>
+              <span className="pagination-info">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button 
+                className="pagination-btn" 
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next →
+              </button>
+            </div>
+          </>
         )}
       </div>
 

@@ -126,39 +126,76 @@ router.get('/products', verifyToken, async (req, res) => {
     };
 
     // ----------------------------
-    // INVENTORY TABLE MODE (ALL PRODUCTS IN STOCK)
+    // INVENTORY TABLE MODE (ALL PRODUCTS IN STOCK) - OPTIMIZED
     // ----------------------------
     // When no search/category and high limit requested, return ALL products in stock
     if (!searchQuery && !categoryQuery && isInventoryRequest) {
-      // Get all custom products in stock (use DISTINCT to avoid duplicates from multiple batches)
-      const stockCustomQuery = `
-        SELECT DISTINCT cp.*, "custom" as product_type
-        FROM stock s
-        INNER JOIN custom_products cp ON cp.id = s.custom_product_id
-        WHERE s.user_id = ? AND cp.user_id = ? AND s.is_deleted = FALSE AND s.quantity > 0
-        ORDER BY cp.name ASC
-      `;
-      const [stockCustomProducts] = await usersPool.query(stockCustomQuery, [userId, userId]);
+      // Optimized: Get stock aggregates first (only for products with quantity > 0)
+      const [stockAggregates] = await usersPool.query(
+        `SELECT 
+          medicine_reg_number,
+          custom_product_id,
+          MAX(unit_price) as latest_price,
+          SUM(quantity) as total_quantity,
+          MAX(min_stock_level) as min_stock_level
+        FROM stock 
+        WHERE user_id = ? AND is_deleted = FALSE AND quantity > 0
+        GROUP BY medicine_reg_number, custom_product_id`,
+        [userId]
+      );
 
-      // Get all medicines in stock (chunked IN list, no limit)
+      // Build maps from aggregates (much faster than processing all batches)
+      const stockPriceMap = {};
+      const stockQuantityMap = {};
+      const stockMinLevelMap = {};
+      const medicineRegNumbers = [];
+      const customProductIds = [];
+
+      stockAggregates.forEach(agg => {
+        if (agg.medicine_reg_number) {
+          const key = `MED-${agg.medicine_reg_number}`;
+          stockPriceMap[key] = parseFloat(agg.latest_price) || 0;
+          stockQuantityMap[key] = parseInt(agg.total_quantity) || 0;
+          stockMinLevelMap[key] = parseInt(agg.min_stock_level) || 0;
+          if (!medicineRegNumbers.includes(agg.medicine_reg_number)) {
+            medicineRegNumbers.push(agg.medicine_reg_number);
+          }
+        }
+        if (agg.custom_product_id) {
+          const key = `CUST-${agg.custom_product_id}`;
+          stockPriceMap[key] = parseFloat(agg.latest_price) || 0;
+          stockQuantityMap[key] = parseInt(agg.total_quantity) || 0;
+          stockMinLevelMap[key] = parseInt(agg.min_stock_level) || 0;
+          if (!customProductIds.includes(agg.custom_product_id)) {
+            customProductIds.push(agg.custom_product_id);
+          }
+        }
+      });
+
+      // Get custom products in stock (single query with JOIN)
+      const [stockCustomProducts] = await usersPool.query(
+        `SELECT DISTINCT cp.*, "custom" as product_type
+        FROM custom_products cp
+        WHERE cp.user_id = ? AND cp.id IN (?)
+        ORDER BY cp.name ASC`,
+        [userId, customProductIds.length > 0 ? customProductIds : [0]]
+      );
+
+      // Get medicines in stock (chunked but optimized)
       const stockMedicines = [];
-      const seenMedicines = new Set(); // Track to avoid duplicates
-      if (stockedMedicineRegNumbers.length > 0) {
-        const chunkSize = 800;
-        for (let i = 0; i < stockedMedicineRegNumbers.length; i += chunkSize) {
-          const chunk = stockedMedicineRegNumbers.slice(i, i + chunkSize);
-          const medQuery = 'SELECT *, "medicine" as product_type FROM medicines WHERE reg_number IN (?) ORDER BY product_name ASC';
-          const [rows] = await centralizedPool.query(medQuery, [chunk]);
-          // Filter out duplicates
-          rows.forEach(row => {
-            if (!seenMedicines.has(row.reg_number)) {
-              stockMedicines.push(row);
-              seenMedicines.add(row.reg_number);
-            }
-          });
+      if (medicineRegNumbers.length > 0) {
+        const chunkSize = 1000; // Increased chunk size for better performance
+        for (let i = 0; i < medicineRegNumbers.length; i += chunkSize) {
+          const chunk = medicineRegNumbers.slice(i, i + chunkSize);
+          const [rows] = await centralizedPool.query(
+            'SELECT *, "medicine" as product_type FROM medicines WHERE reg_number IN (?) ORDER BY product_name ASC',
+            [chunk]
+          );
+          stockMedicines.push(...rows);
         }
       }
 
+      // Enrich and combine
       const allStockProducts = [
         ...stockMedicines.map(enrichMedicine),
         ...stockCustomProducts.map(enrichCustom)
