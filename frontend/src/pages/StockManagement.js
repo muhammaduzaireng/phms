@@ -6,7 +6,9 @@ import API_BASE_URL from '../config/api';
 
 const StockManagement = ({ onNavigate, user, token }) => {
   const [stock, setStock] = useState([]);
+  const [allStock, setAllStock] = useState([]); // Store all stock for searching
   const [loading, setLoading] = useState(true);
+  const [stockSearchLoading, setStockSearchLoading] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [stockSummary, setStockSummary] = useState(null);
   const [message, setMessage] = useState('');
@@ -149,10 +151,64 @@ const StockManagement = ({ onNavigate, user, token }) => {
     }
   };
 
-  // Refetch when page or sort changes
+  // Fetch all stock for searching (no pagination)
+  const fetchAllStock = async (sort = sortBy) => {
+    try {
+      setStockSearchLoading(true);
+      const params = new URLSearchParams({
+        page: '1',
+        limit: '10000', // High limit to get all items
+        sortBy: sort
+      });
+      
+      const response = await fetch(`${API_BASE_URL}/api/stock?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAllStock(data.stock || []);
+      }
+    } catch (error) {
+      // No alerts (per requirement)
+    } finally {
+      setStockSearchLoading(false);
+    }
+  };
+
+  // Refetch when page or sort changes (only if not searching)
   useEffect(() => {
-    fetchStock(currentPage, sortBy);
+    if (!searchTerm.trim()) {
+      fetchStock(currentPage, sortBy);
+    }
   }, [currentPage, sortBy]);
+
+  // Debounced search - fetch all stock when searching
+  useEffect(() => {
+    let timeoutId;
+    
+    if (searchTerm.trim()) {
+      // Debounce: wait 500ms after user stops typing
+      timeoutId = setTimeout(() => {
+        fetchAllStock(sortBy);
+      }, 500);
+    } else {
+      // Clear search results and reset to paginated view
+      setAllStock([]);
+      if (currentPage === 1) {
+        fetchStock(1, sortBy);
+      } else {
+        setCurrentPage(1);
+      }
+    }
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [searchTerm, sortBy]);
 
   const handleEdit = (item) => {
     setSelectedItem(item);
@@ -335,17 +391,20 @@ const StockManagement = ({ onNavigate, user, token }) => {
     }
   };
 
-  // Filter stock client-side for search (since backend pagination is already optimized)
+  // Filter stock - use allStock when searching, otherwise use paginated stock
   const filteredStock = useMemo(() => {
+    const stockToFilter = searchTerm.trim() ? allStock : stock;
+    
     if (!searchTerm.trim()) {
-      return stock;
+      return stockToFilter;
     }
+    
     const searchLower = searchTerm.toLowerCase();
-    return stock.filter(item => {
+    return stockToFilter.filter(item => {
       const productName = (item.medicine_name || item.custom_product_name || '').toLowerCase();
       return productName.includes(searchLower);
     });
-  }, [stock, searchTerm]);
+  }, [stock, allStock, searchTerm]);
 
   // Group batches by product (medicine_reg_number or custom_product_id)
   const groupedStock = filteredStock.reduce((groups, item) => {
@@ -443,7 +502,7 @@ const StockManagement = ({ onNavigate, user, token }) => {
       </div>
 
       <div className="stock-list">
-        {loading ? (
+        {(loading || stockSearchLoading) ? (
           <div className="loading">Loading stock...</div>
         ) : stockGroups.length === 0 ? (
           <div className="empty-state">
@@ -455,7 +514,11 @@ const StockManagement = ({ onNavigate, user, token }) => {
         ) : (
           <>
             <div className="stock-pagination-info">
-              Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} products
+              {searchTerm.trim() ? (
+                <span>Found {filteredStock.length} product{filteredStock.length !== 1 ? 's' : ''} matching "{searchTerm}"</span>
+              ) : (
+                <span>Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} products</span>
+              )}
             </div>
             {stockGroups.map((group) => (
             <div key={group.medicineRegNumber || `custom_${group.customProductId}`} style={{ marginBottom: '20px' }}>
@@ -517,25 +580,27 @@ const StockManagement = ({ onNavigate, user, token }) => {
               </table>
             </div>
             ))}
-            <div className="stock-pagination">
-              <button 
-                className="pagination-btn" 
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                ← Previous
-              </button>
-              <span className="pagination-info">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button 
-                className="pagination-btn" 
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-              >
-                Next →
-              </button>
-            </div>
+            {!searchTerm.trim() && (
+              <div className="stock-pagination">
+                <button 
+                  className="pagination-btn" 
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  ← Previous
+                </button>
+                <span className="pagination-info">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button 
+                  className="pagination-btn" 
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next →
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>
