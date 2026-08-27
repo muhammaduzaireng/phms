@@ -25,6 +25,11 @@ router.get('/products', verifyToken, async (req, res) => {
       [userId]
     );
 
+    const toQty = (q) => {
+      const n = Number(q);
+      return Number.isFinite(n) ? n : 0;
+    };
+
     // Create maps for stock prices and quantities
     // Use latest batch price (first in DESC order) and sum quantities from all batches
     const stockPriceMap = {};
@@ -32,30 +37,59 @@ router.get('/products', verifyToken, async (req, res) => {
     const stockMinLevelMap = {};
     const stockedMedicineRegNumbers = [];
     stockItems.forEach(item => {
+      const qty = toQty(item.quantity);
+      // Sellable qty matches Stock Management: ignore 0 and leftover negative (oversell) batches
+      const sellableQty = qty > 0 ? qty : 0;
       if (item.medicine_reg_number) {
         const key = `MED-${item.medicine_reg_number}`;
-        // Set price only if not already set (first = latest batch)
-        if (stockPriceMap[key] === undefined) {
+        // Set price only from batches that still have stock (latest first)
+        if (sellableQty > 0 && stockPriceMap[key] === undefined) {
           stockPriceMap[key] = parseFloat(item.unit_price);
         }
-        // Sum quantities from all batches
-        stockQuantityMap[key] = (stockQuantityMap[key] || 0) + (parseInt(item.quantity) || 0);
-        stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
-        if (!stockedMedicineRegNumbers.includes(item.medicine_reg_number)) {
+        stockQuantityMap[key] = (stockQuantityMap[key] || 0) + sellableQty;
+        if (sellableQty > 0) {
+          stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
+        }
+        if (sellableQty > 0 && !stockedMedicineRegNumbers.includes(item.medicine_reg_number)) {
           stockedMedicineRegNumbers.push(item.medicine_reg_number);
         }
       }
       if (item.custom_product_id) {
         const key = `CUST-${item.custom_product_id}`;
-        // Set price only if not already set (first = latest batch)
-        if (stockPriceMap[key] === undefined) {
+        if (sellableQty > 0 && stockPriceMap[key] === undefined) {
           stockPriceMap[key] = parseFloat(item.unit_price);
         }
-        // Sum quantities from all batches
-        stockQuantityMap[key] = (stockQuantityMap[key] || 0) + (parseInt(item.quantity) || 0);
-        stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
+        stockQuantityMap[key] = (stockQuantityMap[key] || 0) + sellableQty;
+        if (sellableQty > 0) {
+          stockMinLevelMap[key] = parseInt(item.min_stock_level) || 0;
+        }
       }
     });
+
+    const uniquePOSProducts = (products) => {
+      const bestById = new Map();
+      products.forEach((p) => {
+        const idKey = p.isCustom
+          ? `CUST-${p.custom_product_id || p.id}`
+          : `MED-${p.reg_number}`;
+        const prev = bestById.get(idKey);
+        if (!prev || toQty(p.stock_quantity) > toQty(prev.stock_quantity)) {
+          bestById.set(idKey, p);
+        }
+      });
+
+      // Same display name (e.g. duplicate custom products) → keep the in-stock row
+      const bestByName = new Map();
+      bestById.forEach((p) => {
+        const nameKey = (p.product_name || p.name || '').trim().toLowerCase()
+          || `id:${p.reg_number || p.id}`;
+        const prev = bestByName.get(nameKey);
+        if (!prev || toQty(p.stock_quantity) > toQty(prev.stock_quantity)) {
+          bestByName.set(nameKey, p);
+        }
+      });
+      return Array.from(bestByName.values());
+    };
 
     const enrichMedicine = (m) => {
       const stockKey = `MED-${m.reg_number}`;
@@ -119,8 +153,8 @@ router.get('/products', verifyToken, async (req, res) => {
       const ai = a.in_stock ? 1 : 0;
       const bi = b.in_stock ? 1 : 0;
       if (ai !== bi) return bi - ai;
-      const aq = parseInt(a.stock_quantity) || 0;
-      const bq = parseInt(b.stock_quantity) || 0;
+      const aq = toQty(a.stock_quantity);
+      const bq = toQty(b.stock_quantity);
       if (aq !== bq) return bq - aq;
       return (a.product_name || '').localeCompare(b.product_name || '');
     };
@@ -196,10 +230,10 @@ router.get('/products', verifyToken, async (req, res) => {
       }
 
       // Enrich and combine
-      const allStockProducts = [
+      const allStockProducts = uniquePOSProducts([
         ...stockMedicines.map(enrichMedicine),
         ...stockCustomProducts.map(enrichCustom)
-      ].sort(sortForPOS);
+      ]).sort(sortForPOS);
 
       return res.json({ products: allStockProducts });
     }
@@ -207,18 +241,16 @@ router.get('/products', verifyToken, async (req, res) => {
     // ----------------------------
     // STOCK-FIRST SEARCH (FAST)
     // ----------------------------
-    // 1) Search custom products that are IN STOCK (users DB join)
+    // 1) Search custom products that are IN STOCK (one row per product, not per batch)
     // 2) Search medicines that are IN STOCK (centralized DB, filtered by reg_numbers list)
     // If we find anything in stock, return immediately (no centralized full search).
     if (searchQuery || categoryQuery) {
-      // Custom products in stock
       let stockCustomQuery = `
         SELECT cp.*, "custom" as product_type
-        FROM stock s
-        INNER JOIN custom_products cp ON cp.id = s.custom_product_id
-        WHERE s.user_id = ? AND cp.user_id = ?
+        FROM custom_products cp
+        WHERE cp.user_id = ?
       `;
-      const stockCustomParams = [userId, userId];
+      const stockCustomParams = [userId];
 
       if (searchQuery) {
         stockCustomQuery += ' AND (cp.name LIKE ? OR cp.description LIKE ? OR cp.barcode = ?)';
@@ -231,45 +263,59 @@ router.get('/products', verifyToken, async (req, res) => {
         stockCustomParams.push(categoryQuery);
       }
 
-      stockCustomQuery += ' AND s.is_deleted = FALSE ORDER BY s.quantity > 0 DESC, s.quantity DESC, cp.name ASC LIMIT ?';
-      stockCustomParams.push(LIMIT);
+      stockCustomQuery += `
+        AND EXISTS (
+          SELECT 1 FROM stock s
+          WHERE s.custom_product_id = cp.id
+            AND s.user_id = ?
+            AND s.is_deleted = FALSE
+            AND s.quantity > 0
+        )
+        ORDER BY cp.name ASC
+        LIMIT ?
+      `;
+      stockCustomParams.push(userId, LIMIT);
 
       const [stockCustomProducts] = await usersPool.query(stockCustomQuery, stockCustomParams);
 
       // Medicines in stock (chunked IN list)
       const stockMedicines = [];
       if (stockedMedicineRegNumbers.length > 0) {
-        const chunkSize = 800;
-        for (let i = 0; i < stockedMedicineRegNumbers.length; i += chunkSize) {
-          if (stockMedicines.length >= LIMIT) break;
-          const chunk = stockedMedicineRegNumbers.slice(i, i + chunkSize);
+        try {
+          const chunkSize = 800;
+          for (let i = 0; i < stockedMedicineRegNumbers.length; i += chunkSize) {
+            if (stockMedicines.length >= LIMIT) break;
+            const chunk = stockedMedicineRegNumbers.slice(i, i + chunkSize);
 
-          let medQuery = 'SELECT *, "medicine" as product_type FROM medicines WHERE reg_number IN (?)';
-          const medParams = [chunk];
+            let medQuery = 'SELECT *, "medicine" as product_type FROM medicines WHERE reg_number IN (?)';
+            const medParams = [chunk];
 
-          if (searchQuery) {
-            medQuery += ' AND (product_name LIKE ? OR generic_name LIKE ? OR reg_number LIKE ?)';
-            const like = `%${searchQuery}%`;
-            medParams.push(like, like, like);
+            if (searchQuery) {
+              medQuery += ' AND (product_name LIKE ? OR generic_name LIKE ? OR reg_number LIKE ?)';
+              const like = `%${searchQuery}%`;
+              medParams.push(like, like, like);
+            }
+
+            if (categoryQuery) {
+              medQuery += ' AND category = ?';
+              medParams.push(categoryQuery);
+            }
+
+            medQuery += ' LIMIT ?';
+            medParams.push(LIMIT - stockMedicines.length);
+
+            const [rows] = await centralizedPool.query(medQuery, medParams);
+            stockMedicines.push(...rows);
           }
-
-          if (categoryQuery) {
-            medQuery += ' AND category = ?';
-            medParams.push(categoryQuery);
-          }
-
-          medQuery += ' LIMIT ?';
-          medParams.push(LIMIT - stockMedicines.length);
-
-          const [rows] = await centralizedPool.query(medQuery, medParams);
-          stockMedicines.push(...rows);
+        } catch (err) {
+          console.error('Centralized medicine search failed:', err.message);
         }
       }
 
-      const stockFirstProducts = [
+      const stockFirstProducts = uniquePOSProducts([
         ...stockMedicines.map(enrichMedicine),
         ...stockCustomProducts.map(enrichCustom)
-      ].sort(sortForPOS).slice(0, LIMIT);
+      ]).filter(p => toQty(p.stock_quantity) > 0).sort(sortForPOS).slice(0, LIMIT);
 
       if (stockFirstProducts.length > 0) {
         return res.json({ products: stockFirstProducts });
@@ -295,7 +341,13 @@ router.get('/products', verifyToken, async (req, res) => {
     }
     medicineQuery += ' LIMIT ?';
     medicineParams.push(LIMIT);
-    const [medicines] = await centralizedPool.query(medicineQuery, medicineParams);
+    let medicines = [];
+    try {
+      const [medicineRows] = await centralizedPool.query(medicineQuery, medicineParams);
+      medicines = medicineRows;
+    } catch (err) {
+      console.error('Centralized medicine fallback search failed:', err.message);
+    }
 
     // Custom products (users DB)
     let customQuery = 'SELECT *, "custom" as product_type FROM custom_products WHERE user_id = ?';
@@ -313,10 +365,10 @@ router.get('/products', verifyToken, async (req, res) => {
     customParams.push(LIMIT);
     const [customProducts] = await usersPool.query(customQuery, customParams);
 
-    const allProducts = [
+    const allProducts = uniquePOSProducts([
       ...medicines.map(enrichMedicine),
       ...customProducts.map(enrichCustom)
-    ].sort(sortForPOS).slice(0, LIMIT);
+    ]).sort(sortForPOS).slice(0, LIMIT);
 
     res.json({ products: allProducts });
   } catch (error) {

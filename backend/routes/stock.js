@@ -45,10 +45,11 @@ router.get('/summary', verifyToken, async (req, res) => {
 router.get('/', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { medicineRegNumber, customProductId, page = 1, limit = 50, sortBy = 'low_stock_first' } = req.query;
+    const { medicineRegNumber, customProductId, page = 1, limit = 50, sortBy = 'low_stock_first', search } = req.query;
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 50;
     const offset = (pageNum - 1) * limitNum;
+    const searchQuery = (search || '').toString().trim();
 
     // Build base query with JOINs to avoid N+1 queries
     // Note: medicines table is in centralized DB, so we'll fetch those separately in batch
@@ -72,6 +73,9 @@ router.get('/', verifyToken, async (req, res) => {
       stockParams.push(customProductId);
     }
 
+    // Note: Search will be applied after fetching medicine names (client-side filtering in backend)
+    // We'll filter after enriching with medicine names
+
     // Sorting: low stock first, then by product name
     if (sortBy === 'low_stock_first') {
       stockQuery += ` ORDER BY 
@@ -84,16 +88,25 @@ router.get('/', verifyToken, async (req, res) => {
       stockQuery += ' ORDER BY s.created_at ASC';
     }
 
-    // Get total count for pagination
+    // Get total count for pagination (before search filter)
     const countQuery = stockQuery.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) as total FROM');
     const [countResult] = await usersPool.query(countQuery, stockParams);
-    const total = countResult[0]?.total || 0;
+    let total = countResult[0]?.total || 0;
 
-    // Add pagination
-    stockQuery += ` LIMIT ? OFFSET ?`;
-    stockParams.push(limitNum, offset);
-
-    const [stock] = await usersPool.query(stockQuery, stockParams);
+    // For search, we need to fetch ALL items first, then filter
+    // For normal pagination, fetch only the page we need
+    let stock;
+    if (searchQuery) {
+      // When searching, fetch ALL items (no limit) to search through all
+      const [allStock] = await usersPool.query(stockQuery, stockParams);
+      stock = allStock;
+    } else {
+      // Normal pagination - fetch only the page needed
+      stockQuery += ` LIMIT ? OFFSET ?`;
+      stockParams.push(limitNum, offset);
+      const [paginatedStock] = await usersPool.query(stockQuery, stockParams);
+      stock = paginatedStock;
+    }
 
     // Fetch medicine names in batch to avoid N+1 queries
     const medicineRegNumbers = [...new Set(stock.filter(s => s.medicine_reg_number).map(s => s.medicine_reg_number))];
@@ -119,18 +132,35 @@ router.get('/', verifyToken, async (req, res) => {
     }
 
     // Enrich stock with medicine names
-    const enrichedStock = stock.map(item => ({
+    let enrichedStock = stock.map(item => ({
       ...item,
       medicine_name: item.medicine_reg_number ? (medicineNamesMap[item.medicine_reg_number] || null) : null
     }));
 
+    // Apply search filter if provided (after enriching with names)
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      enrichedStock = enrichedStock.filter(item => {
+        const productName = (item.medicine_name || item.custom_product_name || '').toLowerCase();
+        return productName.includes(searchLower);
+      });
+      // When searching, return all results (no pagination)
+      total = enrichedStock.length;
+    }
+
+    // Apply pagination only if not searching
+    let paginatedStock = enrichedStock;
+    if (!searchQuery) {
+      paginatedStock = enrichedStock; // Already paginated from query
+    }
+
     res.json({
-      stock: enrichedStock,
+      stock: paginatedStock,
       pagination: {
-        page: pageNum,
-        limit: limitNum,
+        page: searchQuery ? 1 : pageNum,
+        limit: searchQuery ? total : limitNum,
         total: total,
-        totalPages: Math.ceil(total / limitNum)
+        totalPages: searchQuery ? 1 : Math.ceil(total / limitNum)
       }
     });
   } catch (error) {

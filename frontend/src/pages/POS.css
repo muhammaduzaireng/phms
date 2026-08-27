@@ -1,3 +1,54 @@
+.pos-workspace {
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+}
+
+.pos-workspace .main-navigation {
+  margin-bottom: 8px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.pos-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+}
+
+.pos-session {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  outline: none;
+}
+
+.pos-session.is-compact {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.pos-session.is-compact .keyboard-shortcuts-hint {
+  display: none;
+}
+
+.pos-close-pane {
+  background: #64748b !important;
+}
+
+.pos-close-pane:hover:not(:disabled) {
+  background: #475569 !important;
+}
+
 .pos-container {
   height: 100vh;
   max-height: 100vh;
@@ -6,6 +57,12 @@
   padding: 15px;
   display: flex;
   flex-direction: column;
+}
+
+.pos-container .main-navigation {
+  margin-bottom: 8px;
+  border-radius: 8px;
+  flex-shrink: 0;
 }
 
 .pos-user-info {
@@ -87,8 +144,20 @@
   gap: 15px;
   flex: 1;
   min-height: 0;
-  max-height: calc(100vh - 180px); /* Limit height to viewport minus header */
   overflow: hidden;
+}
+
+.pos-session.is-compact .pos-main {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+}
+
+.pos-session.is-compact .pos-header {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.pos-session.is-compact .pos-header h1 {
+  font-size: 1.1rem;
 }
 
 .pos-left {
@@ -128,18 +197,22 @@
 }
 
 @media (max-width: 1400px) {
-  .pos-main {
+  .pos-workspace:not(.is-split) .pos-main {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: 1fr auto;
   }
   
-  .pos-right {
+  .pos-workspace:not(.is-split) .pos-right {
     grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 1024px) {
-  .pos-main {
+  .pos-workspace.is-split .pos-panes {
+    flex-direction: column;
+  }
+
+  .pos-workspace:not(.is-split) .pos-main {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto auto;
   }

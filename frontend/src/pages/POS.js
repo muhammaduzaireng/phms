@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './POS.css';
 import Navigation from '../components/Navigation';
 import POSProductSearch from '../components/POS/POSProductSearch';
@@ -10,7 +10,8 @@ import API_BASE_URL from '../config/api';
 // Data sync only used in Electron - disabled for web
 // import { addToSyncQueue } from '../services/dataSync';
 
-const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
+const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, onClose, compact }) => {
+  const paneRef = useRef(null);
   const [cart, setCart] = useState([]);
   const [showCheckout, setShowCheckout] = useState(false);
   const [receipt, setReceipt] = useState(null);
@@ -18,18 +19,22 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
   const [tax, setTax] = useState(0);
   const [inventorySearchTerm, setInventorySearchTerm] = useState('');
 
-  // Get token from localStorage if not provided
   const authToken = token || localStorage.getItem('pharmacyToken');
 
-  // Global keyboard shortcuts for POS
   useEffect(() => {
     const handleKeyPress = (e) => {
-      // Don't interfere if user is typing in input/textarea
+      const activePane = document.activeElement?.closest('.pos-session');
+      if (activePane && paneRef.current && activePane !== paneRef.current) {
+        return;
+      }
+      if (!activePane && onClose) {
+        return;
+      }
+
       const isInputFocused = e.target.tagName === 'INPUT' || 
                             e.target.tagName === 'TEXTAREA' ||
                             e.target.isContentEditable;
       
-      // ESC - Close checkout/receipt
       if (e.key === 'Escape') {
         if (showCheckout) {
           e.preventDefault();
@@ -42,15 +47,13 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
         return;
       }
 
-      // Only handle shortcuts when not typing in inputs (except for global shortcuts)
       if (isInputFocused && !e.ctrlKey && !e.altKey && e.key !== 'Escape') {
         return;
       }
 
-      // F1 - Focus search input
       if (e.key === 'F1') {
         e.preventDefault();
-        const searchInput = document.querySelector('.search-input, .product-search-input');
+        const searchInput = paneRef.current?.querySelector('.search-input, .product-search-input');
         if (searchInput) {
           searchInput.focus();
           searchInput.select();
@@ -79,7 +82,7 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
         if (cart.length > 0 && !showCheckout) {
           setShowCheckout(true);
         } else if (showCheckout) {
-          const checkoutBtn = document.querySelector('.btn-confirm, .checkout-button');
+          const checkoutBtn = paneRef.current?.querySelector('.btn-confirm, .checkout-button');
           if (checkoutBtn) checkoutBtn.click();
         }
       }
@@ -339,28 +342,21 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
 
   if (receipt) {
     return (
-      <POSReceipt 
-        transaction={receipt} 
-        onClose={closeReceipt}
-        pharmacyName={user?.pharmacyName || user?.username}
-        isElectron={isElectron}
-      />
+      <div className="pos-session" ref={paneRef} tabIndex={-1}>
+        <POSReceipt 
+          transaction={receipt} 
+          onClose={closeReceipt}
+          pharmacyName={user?.pharmacyName || user?.username}
+          isElectron={isElectron}
+        />
+      </div>
     );
   }
 
   return (
-    <div className="pos-container">
-      {!isElectron && onNavigate && (
-        <Navigation currentPage="pos" onNavigate={onNavigate} />
-      )}
-      {user && (
-        <div className="pos-user-info">
-          <span>🏥 {user.pharmacyName || user.username}</span>
-          {onLogout && <button className="logout-btn" onClick={onLogout}>Logout</button>}
-        </div>
-      )}
+    <div className={`pos-session ${compact ? 'is-compact' : ''}`} ref={paneRef} tabIndex={-1}>
       <div className="pos-header">
-        <h1>💊 Point of Sale (POS)</h1>
+        <h1>💊 {paneLabel || 'Point of Sale'}</h1>
         <div className="pos-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div className="keyboard-shortcuts-hint" style={{
             fontSize: '0.85rem',
@@ -388,6 +384,16 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
           >
             Clear Cart (F3)
           </button>
+          {onClose && (
+            <button
+              type="button"
+              className="btn-secondary pos-close-pane"
+              onClick={onClose}
+              title="Close this POS window"
+            >
+              ✕ Close
+            </button>
+          )}
         </div>
       </div>
 
@@ -403,14 +409,16 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
           />
         </div>
 
-        <div className="pos-middle">
-          <POSInventoryTable 
-            searchTerm={inventorySearchTerm}
-            onAddToCart={addToCart}
-            token={authToken}
-            cart={cart}
-          />
-        </div>
+        {!compact && (
+          <div className="pos-middle">
+            <POSInventoryTable 
+              searchTerm={inventorySearchTerm}
+              onAddToCart={addToCart}
+              token={authToken}
+              cart={cart}
+            />
+          </div>
+        )}
 
         <div className="pos-right">
           <POSCart
@@ -434,6 +442,69 @@ const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
           onCancel={() => setShowCheckout(false)}
         />
       )}
+    </div>
+  );
+};
+
+const POS = ({ onNavigate, user, token, onLogout, isElectron = false }) => {
+  const [paneIds, setPaneIds] = useState(['main']);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('phmsOpenExtraPos') === '1') {
+        sessionStorage.removeItem('phmsOpenExtraPos');
+        setPaneIds((ids) => (ids.length >= 2 ? ids : [...ids, `pos-${Date.now()}`]));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  const addPane = () => {
+    setPaneIds((ids) => {
+      if (ids.length >= 2) return ids;
+      return [...ids, `pos-${Date.now()}`];
+    });
+  };
+
+  const closePane = (id) => {
+    setPaneIds((ids) => (ids.length <= 1 ? ids : ids.filter((paneId) => paneId !== id)));
+  };
+
+  const split = paneIds.length > 1;
+
+  return (
+    <div className={`pos-workspace ${split ? 'is-split' : ''}`}>
+      {!isElectron && onNavigate && (
+        <Navigation
+          currentPage="pos"
+          onNavigate={onNavigate}
+          user={user}
+          onLogout={onLogout}
+          onOpenPosWindow={addPane}
+          posWindowsFull={paneIds.length >= 2}
+        />
+      )}
+      {user && (isElectron || !onNavigate) && (
+        <div className="pos-user-info">
+          <span>🏥 {user.pharmacyName || user.username}</span>
+          {onLogout && <button className="logout-btn" onClick={onLogout}>Logout</button>}
+        </div>
+      )}
+      <div className="pos-panes">
+        {paneIds.map((id, index) => (
+          <POSSession
+            key={id}
+            user={user}
+            token={token}
+            isElectron={isElectron}
+            onNavigate={onNavigate}
+            paneLabel={split ? `POS ${index + 1}` : 'Point of Sale (POS)'}
+            compact={split}
+            onClose={index === 0 ? null : () => closePane(id)}
+          />
+        ))}
+      </div>
     </div>
   );
 };

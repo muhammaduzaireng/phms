@@ -20,6 +20,35 @@ const POSProductSearch = ({ onAddToCart, token, onSearchChange }) => {
     fetchCategories();
   }, []);
 
+  const uniquePOSProducts = (productsArray) => {
+    const bestById = new Map();
+    productsArray.forEach((p) => {
+      const idKey = p.isCustom
+        ? `CUST-${p.custom_product_id || p.id}`
+        : `MED-${p.reg_number}`;
+      const prev = bestById.get(idKey);
+      const pQty = Number(p.stock_quantity) || 0;
+      const prevQty = prev ? (Number(prev.stock_quantity) || 0) : -1;
+      if (!prev || pQty > prevQty) {
+        bestById.set(idKey, p);
+      }
+    });
+
+    const bestByName = new Map();
+    bestById.forEach((p) => {
+      const nameKey = (p.product_name || p.name || '').trim().toLowerCase()
+        || `id:${p.reg_number || p.id}`;
+      const prev = bestByName.get(nameKey);
+      const pQty = Number(p.stock_quantity) || 0;
+      const prevQty = prev ? (Number(prev.stock_quantity) || 0) : -1;
+      if (!prev || pQty > prevQty) {
+        bestByName.set(nameKey, p);
+      }
+    });
+
+    return Array.from(bestByName.values());
+  };
+
   // Helper function to sort products by relevance to search term
   const sortProductsByRelevance = (productsArray, searchQuery) => {
     if (!searchQuery) return productsArray;
@@ -80,7 +109,10 @@ const POSProductSearch = ({ onAddToCart, token, onSearchChange }) => {
         const cachedResults = getCachedMedicineSearch(searchQuery);
         if (cachedResults && cachedResults.length > 0) {
           // Sort cached results too
-          const sortedCached = sortProductsByRelevance(cachedResults, searchQuery);
+          const sortedCached = sortProductsByRelevance(
+            uniquePOSProducts(cachedResults),
+            searchQuery
+          );
           setProducts(sortedCached);
           setLoading(false);
           // Still try to fetch fresh data in background if online
@@ -121,7 +153,10 @@ const POSProductSearch = ({ onAddToCart, token, onSearchChange }) => {
           if (!navigator.onLine) {
             const cachedResults = getCachedMedicineSearch(searchQuery);
             if (cachedResults) {
-              const sortedCached = sortProductsByRelevance(cachedResults, searchQuery);
+              const sortedCached = sortProductsByRelevance(
+                uniquePOSProducts(cachedResults),
+                searchQuery
+              );
               setProducts(sortedCached);
               if (searchQuery.length >= 1) {
                 setShowDropdown(true);
@@ -145,7 +180,13 @@ const POSProductSearch = ({ onAddToCart, token, onSearchChange }) => {
         }
 
         const data = await response.json();
-        const productsArray = Array.isArray(data.products) ? data.products : [];
+        let productsArray = uniquePOSProducts(
+          Array.isArray(data.products) ? data.products : []
+        );
+        const inStockOnly = productsArray.filter(p => Number(p.stock_quantity) > 0);
+        if (inStockOnly.length > 0) {
+          productsArray = inStockOnly;
+        }
         
         // Sort products by relevance - ALWAYS sort when there's a search query
         const sortedProducts = searchQuery.length > 0 
@@ -166,7 +207,10 @@ const POSProductSearch = ({ onAddToCart, token, onSearchChange }) => {
         // Offline - try cache
         const cachedResults = getCachedMedicineSearch(searchQuery);
         if (cachedResults) {
-          const sortedCached = sortProductsByRelevance(cachedResults, searchQuery);
+          const sortedCached = sortProductsByRelevance(
+            uniquePOSProducts(cachedResults),
+            searchQuery
+          );
           setProducts(sortedCached);
         } else {
           setProducts([]);
@@ -176,7 +220,10 @@ const POSProductSearch = ({ onAddToCart, token, onSearchChange }) => {
       // On error, try cache
       const cachedResults = getCachedMedicineSearch(searchTerm.trim());
       if (cachedResults) {
-        const sortedCached = sortProductsByRelevance(cachedResults, searchTerm.trim());
+        const sortedCached = sortProductsByRelevance(
+          uniquePOSProducts(cachedResults),
+          searchTerm.trim()
+        );
         setProducts(sortedCached);
         if (searchTerm.trim().length >= 1) {
           setShowDropdown(true);

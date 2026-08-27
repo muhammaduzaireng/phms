@@ -10,15 +10,22 @@ const getApiUrl = () => {
       apiUrl = savedApiUrl;
     }
   }
-  
+
   // If not in localStorage, check environment variable
   if (!apiUrl && process.env.REACT_APP_API_URL) {
     apiUrl = process.env.REACT_APP_API_URL;
   }
-  
-  // Default to production API URL
+
+  // Local backend during development; production API otherwise
   if (!apiUrl) {
-    apiUrl = 'http://phms.devzytic.com';
+    apiUrl = process.env.NODE_ENV === 'development'
+      ? 'http://localhost:5001'
+      : 'http://phms.devzytic.com';
+  }
+
+  // In local development, don't keep pointing at production if a stale URL was saved
+  if (process.env.NODE_ENV === 'development' && apiUrl.includes('phms.devzytic.com')) {
+    apiUrl = 'http://localhost:5001';
   }
   
   // Normalize URL - remove port for production API URLs

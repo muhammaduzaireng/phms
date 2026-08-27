@@ -102,7 +102,7 @@ const PurchaseOrders = ({ onNavigate, user, token, onOrderClick, onCreateClick }
 
   return (
       <div className="purchase-orders-container">
-      {!onNavigate && <Navigation currentPage="purchase-orders" onNavigate={onNavigate} />}
+      {onNavigate && <Navigation currentPage="purchase-orders" onNavigate={onNavigate} />}
       <div className="po-header">
         <h1>📦 Purchase Orders</h1>
         <div className="po-header-actions">
