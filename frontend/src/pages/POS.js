@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './POS.css';
 import Navigation from '../components/Navigation';
-import POSProductSearch from '../components/POS/POSProductSearch';
 import POSInventoryTable from '../components/POS/POSInventoryTable';
 import POSCart from '../components/POS/POSCart';
 import POSCheckout from '../components/POS/POSCheckout';
 import POSReceipt from '../components/POS/POSReceipt';
+import POSAddItemPopup from '../components/POS/POSAddItemPopup';
 import API_BASE_URL from '../config/api';
 // Data sync only used in Electron - disabled for web
 // import { addToSyncQueue } from '../services/dataSync';
@@ -17,7 +17,8 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
   const [receipt, setReceipt] = useState(null);
   const [discount, setDiscount] = useState(0);
   const [tax, setTax] = useState(0);
-  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
+  const [showAddItem, setShowAddItem] = useState(true);
+  const [addItemSearch, setAddItemSearch] = useState('');
 
   const authToken = token || localStorage.getItem('pharmacyToken');
 
@@ -39,6 +40,9 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
         if (showCheckout) {
           e.preventDefault();
           setShowCheckout(false);
+        } else if (showAddItem) {
+          e.preventDefault();
+          setShowAddItem(false);
         }
         if (receipt) {
           e.preventDefault();
@@ -47,23 +51,47 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
         return;
       }
 
-      if (isInputFocused && !e.ctrlKey && !e.altKey && e.key !== 'Escape') {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        setShowAddItem(true);
         return;
       }
 
-      if (e.key === 'F1') {
+      const isTypingKey = /^[a-zA-Z0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey;
+      const inAddPopup = e.target.closest?.('.add-item-modal');
+      if (
+        isTypingKey &&
+        !showCheckout &&
+        !receipt &&
+        !showAddItem &&
+        !isInputFocused
+      ) {
         e.preventDefault();
-        const searchInput = paneRef.current?.querySelector('.search-input, .product-search-input');
-        if (searchInput) {
-          searchInput.focus();
-          searchInput.select();
-        }
+        setAddItemSearch(e.key);
+        setShowAddItem(true);
+        return;
+      }
+      if (
+        isTypingKey &&
+        showAddItem &&
+        !inAddPopup &&
+        !isInputFocused &&
+        !showCheckout
+      ) {
+        e.preventDefault();
+        setAddItemSearch((prev) => prev + e.key);
+        return;
+      }
+
+      if (isInputFocused && !e.ctrlKey && !e.altKey && e.key !== 'Escape') {
+        return;
       }
 
       // F2 - Open checkout (if cart has items)
       if (e.key === 'F2') {
         e.preventDefault();
         if (cart.length > 0 && !showCheckout) {
+          setShowAddItem(false);
           setShowCheckout(true);
         }
       }
@@ -80,6 +108,7 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
       if (e.key === 'Enter' && e.ctrlKey) {
         e.preventDefault();
         if (cart.length > 0 && !showCheckout) {
+          setShowAddItem(false);
           setShowCheckout(true);
         } else if (showCheckout) {
           const checkoutBtn = paneRef.current?.querySelector('.btn-confirm, .checkout-button');
@@ -95,21 +124,22 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [cart, showCheckout, receipt]);
+  }, [cart, showCheckout, receipt, showAddItem, onClose]);
 
-  const addToCart = (medicine) => {
+  const addToCart = (medicine, quantity = 1) => {
+    const qtyToAdd = Math.max(1, parseInt(quantity, 10) || 1);
     const existingItem = cart.find(item => item.reg_number === medicine.reg_number);
     
     if (existingItem) {
       setCart(cart.map(item =>
         item.reg_number === medicine.reg_number
-          ? { ...item, quantity: item.quantity + 1 }
+          ? { ...item, quantity: item.quantity + qtyToAdd }
           : item
       ));
     } else {
       setCart([...cart, {
         ...medicine,
-        quantity: 1
+        quantity: qtyToAdd
       }]);
     }
   };
@@ -336,8 +366,9 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
 
   const closeReceipt = () => {
     setReceipt(null);
-    // Clear cart only after user closes receipt (after printing)
     clearCart();
+    setShowAddItem(true);
+    setAddItemSearch('');
   };
 
   if (receipt) {
@@ -365,8 +396,16 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
             background: '#f0f0f0',
             borderRadius: '6px'
           }}>
-            ⌨️ <strong>Shortcuts:</strong> F1=Search • F2=Checkout • F3=Clear • ↑↓=Navigate • Enter=Add
+            ⌨️ <strong>Shortcuts:</strong> F1=Add item • F2=Checkout • F3=Clear • Enter=Add in popup
           </div>
+          <button
+            type="button"
+            className="btn-add-item"
+            onClick={() => setShowAddItem(true)}
+            title="Add product (F1)"
+          >
+            + Add item (F1)
+          </button>
           {!isElectron && onNavigate && (
             <button 
               className="btn-secondary" 
@@ -397,28 +436,18 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
         </div>
       </div>
 
-      <div className="pos-main">
-        <div className="pos-left">
-          <POSProductSearch 
-            onAddToCart={addToCart} 
-            token={authToken}
-            onSearchChange={(searchTerm) => {
-              // Pass search term to inventory table via state
-              setInventorySearchTerm(searchTerm);
+      <div className="pos-main has-inventory">
+        <div className="pos-middle">
+          <POSInventoryTable 
+            searchTerm=""
+            onAddToCart={(product) => {
+              addToCart(product, 1);
+              setShowAddItem(true);
             }}
+            token={authToken}
+            cart={cart}
           />
         </div>
-
-        {!compact && (
-          <div className="pos-middle">
-            <POSInventoryTable 
-              searchTerm={inventorySearchTerm}
-              onAddToCart={addToCart}
-              token={authToken}
-              cart={cart}
-            />
-          </div>
-        )}
 
         <div className="pos-right">
           <POSCart
@@ -430,16 +459,33 @@ const POSSession = ({ user, token, isElectron = false, onNavigate, paneLabel, on
             onDiscountChange={setDiscount}
             onTaxChange={setTax}
             totals={calculateTotals()}
-            onCheckout={() => setShowCheckout(true)}
+            onCheckout={() => {
+              setShowAddItem(false);
+              setShowCheckout(true);
+            }}
           />
         </div>
       </div>
+
+      {showAddItem && !showCheckout && (
+        <POSAddItemPopup
+          token={authToken}
+          searchTerm={addItemSearch}
+          onSearchTermChange={setAddItemSearch}
+          onAddToCart={addToCart}
+          onClose={() => setShowAddItem(false)}
+        />
+      )}
 
       {showCheckout && (
         <POSCheckout
           totals={calculateTotals()}
           onCheckout={handleCheckout}
-          onCancel={() => setShowCheckout(false)}
+          onCancel={() => {
+            setShowCheckout(false);
+            setShowAddItem(true);
+            setAddItemSearch('');
+          }}
         />
       )}
     </div>

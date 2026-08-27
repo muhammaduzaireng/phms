@@ -149,73 +149,70 @@ const POSCart = ({ cart, onUpdateQuantity, onRemoveItem, discount, tax, onDiscou
             ref={el => itemRefs.current[`item-${index}`] = el}
             onClick={() => setSelectedCartIndex(index)}
           >
-            <div className="cart-item-info">
-              <h4>{item.product_name}</h4>
-              <p className="cart-item-generic">{item.generic_name}</p>
-              <p className="cart-item-price">{formatPrice(item.price_rs)} each</p>
+            <div className="cart-item-name" title={item.product_name}>
+              {item.product_name}
             </div>
-            <div className="cart-item-controls">
-              <div className="quantity-controls">
-                <button
-                  className="qty-btn"
-                  onClick={() => onUpdateQuantity(item.reg_number, item.quantity - 1)}
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  className="qty-input"
-                  ref={el => itemRefs.current[`qty-${index}`] = el}
-                  value={item.quantity}
-                  onChange={(e) => onUpdateQuantity(item.reg_number, parseInt(e.target.value) || 0)}
-                  onKeyDown={(e) => {
-                    // Arrow up/down to navigate items
-                    if (e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      if (index > 0) {
-                        const prevInput = itemRefs.current[`qty-${index - 1}`];
-                        if (prevInput) {
-                          prevInput.focus();
-                          prevInput.select();
-                          setSelectedCartIndex(index - 1);
-                        }
-                      }
-                    }
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault();
-                      if (index < cart.length - 1) {
-                        const nextInput = itemRefs.current[`qty-${index + 1}`];
-                        if (nextInput) {
-                          nextInput.focus();
-                          nextInput.select();
-                          setSelectedCartIndex(index + 1);
-                        }
-                      } else {
-                        const checkoutBtn = document.querySelector('.checkout-btn');
-                        if (checkoutBtn) checkoutBtn.focus();
-                      }
-                    }
-                  }}
-                  min="1"
-                />
-                <button
-                  className="qty-btn"
-                  onClick={() => onUpdateQuantity(item.reg_number, item.quantity + 1)}
-                >
-                  +
-                </button>
-              </div>
-              <div className="cart-item-total">
-                {formatPrice(item.price_rs * item.quantity)}
-              </div>
+            <div className="quantity-controls">
               <button
-                className="remove-btn"
-                onClick={() => onRemoveItem(item.reg_number)}
-                title="Remove item"
+                type="button"
+                className="qty-btn"
+                onClick={() => onUpdateQuantity(item.reg_number, item.quantity - 1)}
               >
-                🗑️
+                −
+              </button>
+              <input
+                type="number"
+                className="qty-input"
+                ref={el => itemRefs.current[`qty-${index}`] = el}
+                value={item.quantity}
+                onChange={(e) => onUpdateQuantity(item.reg_number, parseInt(e.target.value) || 0)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (index > 0) {
+                      const prevInput = itemRefs.current[`qty-${index - 1}`];
+                      if (prevInput) {
+                        prevInput.focus();
+                        prevInput.select();
+                        setSelectedCartIndex(index - 1);
+                      }
+                    }
+                  }
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (index < cart.length - 1) {
+                      const nextInput = itemRefs.current[`qty-${index + 1}`];
+                      if (nextInput) {
+                        nextInput.focus();
+                        nextInput.select();
+                        setSelectedCartIndex(index + 1);
+                      }
+                    } else {
+                      const checkoutBtn = document.querySelector('.checkout-btn');
+                      if (checkoutBtn) checkoutBtn.focus();
+                    }
+                  }
+                }}
+                min="1"
+              />
+              <button
+                type="button"
+                className="qty-btn"
+                onClick={() => onUpdateQuantity(item.reg_number, item.quantity + 1)}
+              >
+                +
               </button>
             </div>
+            <div className="cart-item-unit">{formatPrice(item.price_rs)}</div>
+            <div className="cart-item-total">{formatPrice(item.price_rs * item.quantity)}</div>
+            <button
+              type="button"
+              className="remove-btn"
+              onClick={() => onRemoveItem(item.reg_number)}
+              title="Remove item"
+            >
+              🗑️
+            </button>
           </div>
         ))}
       </div>

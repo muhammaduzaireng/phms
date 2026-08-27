@@ -138,17 +138,34 @@
   cursor: not-allowed;
 }
 
-.pos-main {
+.btn-add-item {
+  padding: 10px 18px;
+  background: #22c55e;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-add-item:hover {
+  background: #16a34a;
+  transform: translateY(-1px);
+}
+
+.pos-main,
+.pos-main.has-inventory,
+.pos-main.is-cart-only,
+.pos-session.is-compact .pos-main {
   display: grid;
-  grid-template-columns: 1fr 1fr 400px;
+  grid-template-columns: 1fr 1fr;
   gap: 15px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-.pos-session.is-compact .pos-main {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
 }
 
 .pos-session.is-compact .pos-header {
@@ -199,11 +216,6 @@
 @media (max-width: 1400px) {
   .pos-workspace:not(.is-split) .pos-main {
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr auto;
-  }
-  
-  .pos-workspace:not(.is-split) .pos-right {
-    grid-column: 1 / -1;
   }
 }
 
@@ -212,9 +224,9 @@
     flex-direction: column;
   }
 
-  .pos-workspace:not(.is-split) .pos-main {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
+  .pos-workspace:not(.is-split) .pos-main,
+  .pos-session.is-compact .pos-main {
+    grid-template-columns: 1fr 1fr;
   }
 
   .pos-left,
@@ -225,6 +237,13 @@
 }
 
 @media (max-width: 768px) {
+  .pos-main,
+  .pos-main.has-inventory,
+  .pos-session.is-compact .pos-main,
+  .pos-workspace:not(.is-split) .pos-main {
+    grid-template-columns: 1fr;
+  }
+
   .pos-header {
     flex-direction: column;
     gap: 15px;
